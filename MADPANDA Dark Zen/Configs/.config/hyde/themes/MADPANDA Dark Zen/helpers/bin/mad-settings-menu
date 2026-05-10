@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+choice="$(
+    printf '%s\n' \
+        "Appearance" \
+        "Displays" \
+        "Audio" \
+        "Bluetooth" \
+        "Network" \
+        "Qt5 Appearance" \
+        "Qt6 Appearance" \
+        "Kvantum Theme" \
+        "NVIDIA Settings" \
+        "File Manager" |
+        rofi -dmenu -i -p "Settings"
+)"
+
+case "$choice" in
+    "Appearance") exec nwg-look ;;
+    "Displays") exec nwg-displays ;;
+    "Audio") exec pavucontrol ;;
+    "Bluetooth") exec blueman-manager ;;
+    "Network") exec nm-connection-editor ;;
+    "Qt5 Appearance") exec qt5ct ;;
+    "Qt6 Appearance") exec qt6ct ;;
+    "Kvantum Theme") exec kvantummanager ;;
+    "NVIDIA Settings") exec nvidia-settings ;;
+    "File Manager") exec dolphin ;;
+    *) exit 0 ;;
+esac

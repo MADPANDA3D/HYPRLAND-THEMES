@@ -1,0 +1,460 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import math
+import os
+import socket
+import struct
+import sys
+import time
+
+
+PACKET_REQUEST_PROTOCOL_VERSION = 40
+PACKET_SET_CLIENT_NAME = 50
+PACKET_REQUEST_CONTROLLER_COUNT = 0
+PACKET_REQUEST_CONTROLLER_DATA = 1
+PACKET_REQUEST_PLUGIN_LIST = 200
+PACKET_RGBCONTROLLER_UPDATELEDS = 1050
+PACKET_RGBCONTROLLER_UPDATEZONELEDS = 1051
+
+
+def recv_exact(sock, size):
+    data = bytearray()
+    while len(data) < size:
+        chunk = sock.recv(size - len(data))
+        if not chunk:
+            raise RuntimeError("socket closed while reading")
+        data.extend(chunk)
+    return bytes(data)
+
+
+def send_packet(sock, dev_idx, packet_id, payload=b""):
+    header = struct.pack("<4sIII", b"ORGB", dev_idx, packet_id, len(payload))
+    sock.sendall(header + payload)
+
+
+def recv_packet(sock):
+    magic, dev_idx, packet_id, size = struct.unpack("<4sIII", recv_exact(sock, 16))
+    if magic != b"ORGB":
+        raise RuntimeError("invalid OpenRGB packet magic")
+    return dev_idx, packet_id, recv_exact(sock, size)
+
+
+def read_u16(data, offset):
+    return struct.unpack_from("<H", data, offset)[0], offset + 2
+
+
+def read_u32(data, offset):
+    return struct.unpack_from("<I", data, offset)[0], offset + 4
+
+
+def read_cstring(data, offset):
+    length, offset = read_u16(data, offset)
+    raw = data[offset : offset + length]
+    offset += length
+    return raw.rstrip(b"\0").decode("utf-8", "replace"), offset
+
+
+def connect(host, port):
+    sock = socket.create_connection((host, port), timeout=3)
+    send_packet(sock, 0, PACKET_REQUEST_PROTOCOL_VERSION, struct.pack("<I", 4))
+    recv_packet(sock)
+    send_packet(sock, 0, PACKET_SET_CLIENT_NAME, b"MADPANDA RGB\0")
+    return sock
+
+
+def plugin_list(sock):
+    send_packet(sock, 0, PACKET_REQUEST_PLUGIN_LIST)
+    _, _, data = recv_packet(sock)
+    offset = 0
+    _, offset = read_u32(data, offset)
+    count, offset = read_u16(data, offset)
+    plugins = []
+    for _ in range(count):
+        name, offset = read_cstring(data, offset)
+        description, offset = read_cstring(data, offset)
+        version, offset = read_cstring(data, offset)
+        index, offset = read_u32(data, offset)
+        protocol, offset = read_u32(data, offset)
+        plugins.append(
+            {
+                "name": name,
+                "description": description,
+                "version": version,
+                "index": index,
+                "protocol": protocol,
+            }
+        )
+    return plugins
+
+
+def skip_modes(data, offset, count):
+    for _ in range(count):
+        _, offset = read_cstring(data, offset)
+        offset += 4 * 12
+        color_count, offset = read_u16(data, offset)
+        offset += color_count * 4
+    return offset
+
+
+def parse_controller_data(device_idx, data):
+    offset = 0
+    _, offset = read_u32(data, offset)
+    device_type, offset = read_u32(data, offset)
+    name, offset = read_cstring(data, offset)
+    vendor, offset = read_cstring(data, offset)
+    description, offset = read_cstring(data, offset)
+    version, offset = read_cstring(data, offset)
+    serial, offset = read_cstring(data, offset)
+    location, offset = read_cstring(data, offset)
+    mode_count, offset = read_u16(data, offset)
+    active_mode, offset = read_u32(data, offset)
+    offset = skip_modes(data, offset, mode_count)
+
+    zone_count, offset = read_u16(data, offset)
+    zones = []
+    for zone_idx in range(zone_count):
+        zone_name, offset = read_cstring(data, offset)
+        zone_type, offset = read_u32(data, offset)
+        leds_min, offset = read_u32(data, offset)
+        leds_max, offset = read_u32(data, offset)
+        leds_count, offset = read_u32(data, offset)
+        matrix_len, offset = read_u16(data, offset)
+        offset += matrix_len
+        segment_count, offset = read_u16(data, offset)
+        segments = []
+        for segment_idx in range(segment_count):
+            segment_name, offset = read_cstring(data, offset)
+            segment_type, offset = read_u32(data, offset)
+            start_idx, offset = read_u32(data, offset)
+            segment_leds_count, offset = read_u32(data, offset)
+            segments.append(
+                {
+                    "segment_idx": segment_idx,
+                    "name": segment_name,
+                    "type": segment_type,
+                    "start_idx": start_idx,
+                    "leds_count": segment_leds_count,
+                }
+            )
+        zones.append(
+            {
+                "zone_idx": zone_idx,
+                "name": zone_name,
+                "type": zone_type,
+                "leds_min": leds_min,
+                "leds_max": leds_max,
+                "leds_count": leds_count,
+                "segments": segments,
+            }
+        )
+
+    led_count, offset = read_u16(data, offset)
+    leds = []
+    for led_idx in range(led_count):
+        led_name, offset = read_cstring(data, offset)
+        led_value, offset = read_u32(data, offset)
+        leds.append({"led_idx": led_idx, "name": led_name, "value": led_value})
+
+    color_count, offset = read_u16(data, offset)
+    colors = []
+    for color_idx in range(color_count):
+        color, offset = read_u32(data, offset)
+        colors.append(color)
+
+    return {
+        "device_idx": device_idx,
+        "device_type": device_type,
+        "name": name,
+        "vendor": vendor,
+        "description": description,
+        "version": version,
+        "serial": serial,
+        "location": location,
+        "mode_count": mode_count,
+        "active_mode": active_mode,
+        "zones": zones,
+        "led_count": led_count,
+        "leds": leds,
+        "color_count": color_count,
+        "colors": colors,
+    }
+
+
+def controller_count(sock):
+    send_packet(sock, 0, PACKET_REQUEST_CONTROLLER_COUNT)
+    _, _, data = recv_packet(sock)
+    return struct.unpack_from("<I", data, 0)[0]
+
+
+def controller_details(sock):
+    controllers = []
+    for device_idx in range(controller_count(sock)):
+        send_packet(sock, device_idx, PACKET_REQUEST_CONTROLLER_DATA, struct.pack("<I", 4))
+        _, _, data = recv_packet(sock)
+        controllers.append(parse_controller_data(device_idx, data))
+    return controllers
+
+
+def controller_zones(sock):
+    zones = []
+    for controller in controller_details(sock):
+        for zone in controller["zones"]:
+            zones.append(
+                {
+                    "device_idx": controller["device_idx"],
+                    "zone_name": zone["name"],
+                    "zone_idx": zone["zone_idx"],
+                    "leds_count": zone["leds_count"],
+                    "reverse": False,
+                    "self_brightness": 100,
+                    "name": controller["name"],
+                    "location": controller["location"],
+                    "serial": controller["serial"],
+                    "description": controller["description"],
+                    "version": controller["version"],
+                    "vendor": controller["vendor"],
+                    "is_segment": False,
+                    "segment_idx": -1,
+                }
+            )
+    return zones
+
+
+def openrgb_color(hex_color, brightness=100):
+    color = hex_color.strip().lstrip("#")
+    if len(color) != 6:
+        raise ValueError("color must be a 6-digit hex value")
+    r = int(color[0:2], 16) * brightness // 100
+    g = int(color[2:4], 16) * brightness // 100
+    b = int(color[4:6], 16) * brightness // 100
+    return r | (g << 8) | (b << 16)
+
+
+def color_payload(count, color):
+    count = max(0, int(count))
+    size = 4 + 2 + (count * 4)
+    return struct.pack("<IH", size, count) + (struct.pack("<I", color) * count)
+
+
+def zone_color_payload(zone_idx, count, color):
+    count = max(0, int(count))
+    size = 4 + 4 + 2 + (count * 4)
+    return struct.pack("<IIH", size, int(zone_idx), count) + (struct.pack("<I", color) * count)
+
+
+def parse_targets_file(path):
+    targets = []
+    if not path or not os.path.exists(path):
+        return targets
+    with open(path, "r", encoding="utf-8") as handle:
+        for raw in handle:
+            parts = raw.rstrip("\n").split("\t")
+            if not parts:
+                continue
+            if parts[0] == "device" and len(parts) >= 2:
+                targets.append({"kind": "device", "device_idx": int(parts[1])})
+            elif parts[0] == "zone" and len(parts) >= 3:
+                targets.append(
+                    {
+                        "kind": "zone",
+                        "device_idx": int(parts[1]),
+                        "zone_idx": int(parts[2]),
+                        "name": parts[4] if len(parts) >= 5 else "",
+                    }
+                )
+    return targets
+
+
+def build_targets(controllers, targets_file=None):
+    controllers_by_idx = {item["device_idx"]: item for item in controllers}
+    targets = parse_targets_file(targets_file)
+    if not targets:
+        targets = [{"kind": "device", "device_idx": item["device_idx"]} for item in controllers]
+
+    explicit_zone_devices = {target["device_idx"] for target in targets if target["kind"] == "zone"}
+    explicit_zones = {
+        (target["device_idx"], target["zone_idx"])
+        for target in targets
+        if target["kind"] == "zone"
+    }
+    built = []
+    for target in targets:
+        controller = controllers_by_idx.get(target["device_idx"])
+        if controller is None:
+            continue
+        if target["kind"] == "device":
+            if target["device_idx"] in explicit_zone_devices:
+                continue
+            count = controller["color_count"] or controller["led_count"]
+            if count > 0:
+                built.append({**target, "count": count, "name": controller["name"]})
+        elif target["kind"] == "zone":
+            zones = {zone["zone_idx"]: zone for zone in controller["zones"]}
+            zone = zones.get(target["zone_idx"])
+            if zone and zone["leds_count"] > 0:
+                built.append(
+                    {
+                        **target,
+                        "count": zone["leds_count"],
+                        "name": controller["name"],
+                        "zone_name": zone["name"],
+                    }
+                )
+    for device_idx in explicit_zone_devices:
+        controller = controllers_by_idx.get(device_idx)
+        if controller is None:
+            continue
+        for zone in controller["zones"]:
+            zone_key = (device_idx, zone["zone_idx"])
+            zone_name = zone["name"].lower()
+            if zone_key in explicit_zones:
+                continue
+            if zone["leds_count"] <= 16 or "motherboard" in zone_name or "accent" in zone_name:
+                built.append(
+                    {
+                        "kind": "zone",
+                        "device_idx": device_idx,
+                        "zone_idx": zone["zone_idx"],
+                        "count": zone["leds_count"],
+                        "name": controller["name"],
+                        "zone_name": zone["name"],
+                    }
+                )
+    return built
+
+
+def apply_targets(sock, targets, color):
+    for target in targets:
+        if target["kind"] == "device":
+            send_packet(
+                sock,
+                target["device_idx"],
+                PACKET_RGBCONTROLLER_UPDATELEDS,
+                color_payload(target["count"], color),
+            )
+        elif target["kind"] == "zone":
+            send_packet(
+                sock,
+                target["device_idx"],
+                PACKET_RGBCONTROLLER_UPDATEZONELEDS,
+                zone_color_payload(target["zone_idx"], target["count"], color),
+            )
+
+
+def clamp_brightness(value):
+    return max(0, min(100, int(value)))
+
+
+def eased_progress(progress, easing):
+    progress = max(0.0, min(1.0, float(progress)))
+    if easing == "linear":
+        return progress
+    if easing == "smoothstep":
+        return progress * progress * (3.0 - (2.0 * progress))
+    raise ValueError(f"unsupported easing: {easing}")
+
+
+def run_transition(sock, args):
+    targets = build_targets(controller_details(sock), args.targets_file)
+    if not targets:
+        raise RuntimeError("no OpenRGB SDK transition targets were found")
+
+    from_brightness = clamp_brightness(args.from_brightness)
+    to_brightness = clamp_brightness(args.to_brightness)
+    duration = max(0.05, float(args.duration))
+    fps = max(1.0, float(args.fps))
+    frame_count = max(1, int(math.ceil(duration * fps)))
+    frame_sleep = 1.0 / fps
+
+    if args.verbose:
+        for target in targets:
+            if target["kind"] == "device":
+                print(f"transition_target=device device={target['device_idx']} count={target['count']} name={target['name']}")
+            else:
+                print(
+                    f"transition_target=zone device={target['device_idx']} zone={target['zone_idx']} "
+                    f"count={target['count']} name={target['name']} zone_name={target.get('zone_name', '')}"
+                )
+        sys.stdout.flush()
+
+    start = time.monotonic()
+    last_brightness = None
+    for frame in range(frame_count + 1):
+        progress = frame / frame_count
+        eased = eased_progress(progress, args.easing)
+        brightness = round(from_brightness + ((to_brightness - from_brightness) * eased))
+        brightness = clamp_brightness(brightness)
+        if brightness != last_brightness:
+            apply_targets(sock, targets, openrgb_color(args.color, brightness))
+            if args.verbose:
+                print(f"transition_frame={frame} brightness={brightness}")
+                sys.stdout.flush()
+            last_brightness = brightness
+        next_frame_at = start + ((frame + 1) * frame_sleep)
+        sleep_for = next_frame_at - time.monotonic()
+        if frame < frame_count and sleep_for > 0:
+            time.sleep(sleep_for)
+
+    if last_brightness != to_brightness:
+        apply_targets(sock, targets, openrgb_color(args.color, to_brightness))
+        if args.verbose:
+            print(f"transition_final brightness={to_brightness}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=6742)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("plugin-list")
+    sub.add_parser("controller-zones")
+    sub.add_parser("controller-zones-json")
+    set_color = sub.add_parser("set-color")
+    set_color.add_argument("--targets-file")
+    set_color.add_argument("--color", required=True)
+    set_color.add_argument("--brightness", type=int, default=100)
+    transition = sub.add_parser("transition")
+    transition.add_argument("--targets-file")
+    transition.add_argument("--color", required=True)
+    transition.add_argument("--from-brightness", type=int, required=True)
+    transition.add_argument("--to-brightness", type=int, required=True)
+    transition.add_argument("--duration", type=float, default=1.5)
+    transition.add_argument("--fps", type=float, default=24.0)
+    transition.add_argument("--easing", choices=("linear", "smoothstep"), default="smoothstep")
+    transition.add_argument("--verbose", action="store_true")
+
+    args = parser.parse_args()
+    with connect(args.host, args.port) as sock:
+        if args.command == "plugin-list":
+            for plugin in plugin_list(sock):
+                print(f"{plugin['index']}\t{plugin['name']}\t{plugin['version']}")
+            return 0
+        if args.command == "controller-zones":
+            for zone in controller_zones(sock):
+                print(
+                    f"{zone['device_idx']}\t{zone['zone_idx']}\t{zone['name']}\t"
+                    f"{zone['zone_name']}\t{zone['location']}"
+                )
+            return 0
+        if args.command == "controller-zones-json":
+            print(json.dumps(controller_zones(sock), indent=4))
+            return 0
+        if args.command == "set-color":
+            targets = build_targets(controller_details(sock), args.targets_file)
+            if not targets:
+                raise RuntimeError("no OpenRGB SDK color targets were found")
+            apply_targets(sock, targets, openrgb_color(args.color, clamp_brightness(args.brightness)))
+            return 0
+        if args.command == "transition":
+            run_transition(sock, args)
+            return 0
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"mad-openrgb-sdkctl: {exc}", file=sys.stderr)
+        raise SystemExit(1)

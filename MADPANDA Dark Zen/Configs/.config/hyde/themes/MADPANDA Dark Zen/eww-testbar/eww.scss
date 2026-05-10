@@ -1,0 +1,180 @@
+@import "colors.scss";
+
+* {
+  all: unset;
+  font-family: "JetBrainsMono Nerd Font", "Symbols Nerd Font", sans-serif;
+  font-weight: 700;
+}
+
+.mad-testbar {
+  background: linear-gradient(90deg, rgba(4, 0, 0, 0.92), rgba(46, 4, 4, 0.88));
+  border: 1px solid rgba(234, 0, 0, 0.55);
+  border-radius: 999px;
+  box-shadow: 0 10px 30px $shadow;
+  color: $foreground;
+  padding: 5px 8px;
+}
+
+.left,
+.center,
+.right {
+  padding: 0 4px;
+}
+
+.left {
+  padding-left: 0;
+  padding-right: 2px;
+}
+
+.right {
+  padding-left: 2px;
+  padding-right: 0;
+}
+
+.pill,
+.workspace-strip,
+.system-strip,
+.window-pill {
+  background: rgba(255, 230, 230, 0.055);
+  border-radius: 999px;
+  padding: 4px 8px;
+}
+
+.launcher,
+.icon-button,
+.workspace {
+  border-radius: 999px;
+  color: $muted;
+  min-height: 26px;
+  min-width: 28px;
+  padding: 0 7px;
+  transition: 180ms ease;
+}
+
+.launcher {
+  color: $foreground;
+  font-size: 18px;
+  padding: 0 8px;
+}
+
+.launcher:hover,
+.icon-button:hover,
+.workspace:hover {
+  background: rgba(255, 90, 31, 0.18);
+  color: #ffffff;
+}
+
+.workspace.current {
+  background: linear-gradient(135deg, rgba(234, 0, 0, 0.88), rgba(255, 90, 31, 0.78));
+  color: #ffffff;
+}
+
+.workspace-strip {
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.workspace {
+  min-width: 22px;
+  padding: 0 4px;
+}
+
+.slide-menu {
+  background: rgba(4, 0, 0, 0.76);
+  border: 1px solid rgba(255, 90, 31, 0.38);
+  border-radius: 999px;
+  margin-left: 6px;
+  padding: 3px 8px;
+}
+
+.slide-menu button {
+  color: $muted;
+  border-radius: 999px;
+  min-height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
+}
+
+.slide-menu button:hover {
+  background: rgba(234, 0, 0, 0.22);
+  color: #ffffff;
+}
+
+.clock {
+  color: #ffffff;
+  font-size: 15px;
+  padding: 0 12px;
+}
+
+.clock-detail {
+  color: $muted;
+  font-size: 12px;
+  padding: 0 12px 0 0;
+}
+
+.window-pill {
+  padding-left: 9px;
+  padding-right: 9px;
+}
+
+.window-title {
+  color: $muted;
+  font-size: 11px;
+}
+
+.right .pill {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.right .icon-button {
+  min-width: 24px;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.stat-label {
+  color: $muted;
+  font-size: 12px;
+  padding: 0 6px 0 3px;
+}
+
+.metric-label {
+  color: $foreground;
+  font-size: 12px;
+  padding: 0 2px;
+}
+
+.metrics-menu {
+  padding-right: 5px;
+}
+
+.net-label {
+  color: $foreground;
+  font-size: 12px;
+  padding: 0 6px;
+}
+
+.tool-menu {
+  margin-left: 2px;
+}
+
+.volume-scale trough {
+  background: rgba(255, 230, 230, 0.16);
+  border-radius: 999px;
+  min-height: 6px;
+  min-width: 62px;
+}
+
+.volume-scale trough highlight {
+  background: linear-gradient(90deg, $accent, $accentWarm);
+  border-radius: 999px;
+  min-height: 6px;
+}
+
+tooltip.background {
+  background: rgba(4, 0, 0, 0.96);
+  border: 1px solid rgba(255, 90, 31, 0.45);
+  border-radius: 8px;
+  color: $foreground;
+}

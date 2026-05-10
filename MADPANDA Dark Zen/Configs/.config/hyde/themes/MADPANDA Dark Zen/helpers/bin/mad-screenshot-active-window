@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+dir="${XDG_SCREENSHOTS_DIR:-$HOME/Pictures/Screenshots}"
+mkdir -p "$dir"
+
+window_json="$(hyprctl activewindow -j)"
+geometry="$(
+  jq -r '
+    if (.address == null or .address == "0x0" or (.size[0] // 0) <= 0 or (.size[1] // 0) <= 0) then
+      empty
+    else
+      "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"
+    end
+  ' <<<"$window_json"
+)"
+
+if [[ -z "$geometry" ]]; then
+  notify-send "Screenshot skipped" "No active window found"
+  exit 0
+fi
+
+file="$dir/tile-$(date +%Y%m%d-%H%M%S).png"
+grim -g "$geometry" "$file"
+wl-copy < "$file"
+notify-send "Tile screenshot saved" "$file"

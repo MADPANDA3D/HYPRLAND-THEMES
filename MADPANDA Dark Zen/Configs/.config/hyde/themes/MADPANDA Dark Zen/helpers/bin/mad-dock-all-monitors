@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+icon_size="${MAD_DOCK_ICON_SIZE:-28}"
+margin_bottom="${MAD_DOCK_MARGIN_BOTTOM:-5}"
+workspace_count="${MAD_DOCK_WORKSPACES:-6}"
+launcher_cmd="${MAD_DOCK_LAUNCHER:-nwg-drawer}"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda"
+log_dir="$state_dir/dock"
+watch_interval="${MAD_DOCK_WATCH_INTERVAL:-2}"
+reconcile_delay="${MAD_DOCK_RECONCILE_DELAY:-1}"
+stable_checks="${MAD_DOCK_STABLE_CHECKS:-2}"
+reconcile_lock="${MAD_DOCK_RECONCILE_LOCK:-$log_dir/reconcile-v2.lock}"
+lock_inhibit_file="${MAD_LOCK_DOCK_INHIBIT_FILE:-${XDG_RUNTIME_DIR:-/tmp}/madpanda-lock-surfaces/dock-inhibit}"
+
+die() {
+    echo "mad-dock-all-monitors: $*" >&2
+    exit 1
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+outputs() {
+    if command -v jq >/dev/null 2>&1; then
+        hyprctl monitors -j | jq -r '.[] | select(.disabled == false) | .name'
+    else
+        hyprctl monitors | awk '/^Monitor / {print $2}'
+    fi
+}
+
+output_signature() {
+    outputs | paste -sd ' ' -
+}
+
+stable_output_signature() {
+    local previous="" current="" stable_seen=0
+
+    while ((stable_seen < stable_checks)); do
+        current="$(output_signature)"
+        if [[ -n "$current" && "$current" == "$previous" ]]; then
+            stable_seen=$((stable_seen + 1))
+        else
+            stable_seen=0
+        fi
+        previous="$current"
+        sleep 0.5
+    done
+
+    printf '%s\n' "$current"
+}
+
+dock_process_count() {
+    pgrep -fc '(^|/)nwg-dock-hyprland( |$)' || true
+}
+
+dock_layer_count() {
+    hyprctl layers | grep -c 'namespace: nwg-dock' || true
+}
+
+dock_inhibited() {
+    [[ -e "$lock_inhibit_file" ]]
+}
+
+wait_for_outputs() {
+    local attempt
+    for attempt in {1..20}; do
+        mapfile -t detected < <(outputs)
+        ((${#detected[@]} > 0)) && return 0
+        sleep 0.25
+    done
+    return 1
+}
+
+start_dock() {
+    local output="$1"
+    local log_file="$log_dir/nwg-dock-$output.log"
+    local -a args=(
+        -m
+        -x
+        -p bottom
+        -i "$icon_size"
+        -mb "$margin_bottom"
+        -w "$workspace_count"
+        -c "$launcher_cmd"
+        -o "$output"
+    )
+
+    if command -v setsid >/dev/null 2>&1; then
+        setsid -f bash -c 'exec 8>&- 2>/dev/null || true; exec nwg-dock-hyprland "$@"' bash "${args[@]}" >"$log_file" 2>&1
+    else
+        (
+            exec 8>&- 2>/dev/null || true
+            exec nwg-dock-hyprland "${args[@]}"
+        ) >"$log_file" 2>&1 &
+    fi
+}
+
+stop_existing_docks() {
+    local -a pids=()
+    local pid
+    mapfile -t pids < <(pgrep -f '(^|/)nwg-dock-hyprland( |$)' || true)
+    for pid in "${pids[@]}"; do
+        [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        kill "$pid" >/dev/null 2>&1 || true
+    done
+    sleep 0.2
+}
+
+reconcile_docks_unlocked() {
+    local -a detected=()
+    wait_for_outputs || return 1
+
+    stop_existing_docks
+
+    local output
+    for output in "${detected[@]}"; do
+        [[ -n "$output" ]] || continue
+        start_dock "$output"
+    done
+}
+
+reconcile_docks() {
+    mkdir -p "$log_dir"
+    (
+        if command -v flock >/dev/null 2>&1; then
+            exec 8>"$reconcile_lock"
+            if ! flock -n 8; then
+                printf 'dock_reconcile_skip time=%s reason=lock\n' "$(date --iso-8601=seconds)" >>"$log_dir/watch.log"
+                exit 0
+            fi
+        fi
+        if dock_inhibited; then
+            printf 'dock_reconcile_skip time=%s reason=lock_surface flag=%s\n' \
+                "$(date --iso-8601=seconds)" "$lock_inhibit_file" >>"$log_dir/watch.log"
+            exit 0
+        fi
+        reconcile_docks_unlocked
+    )
+}
+
+watch_docks() {
+    local last_signature=""
+    local signature process_count layer_count output_count
+
+    reconcile_docks || die "no active Hyprland outputs found"
+    last_signature="$(output_signature)"
+
+    while true; do
+        sleep "$watch_interval"
+        signature="$(output_signature)"
+        [[ -n "$signature" ]] || continue
+        if dock_inhibited; then
+            last_signature="$signature"
+            continue
+        fi
+
+        output_count="$(awk '{print NF}' <<<"$signature")"
+        process_count="$(dock_process_count)"
+        layer_count="$(dock_layer_count)"
+
+        if [[ "$signature" != "$last_signature" || "$process_count" != "$output_count" || "$layer_count" != "$output_count" ]]; then
+            sleep "$reconcile_delay"
+            signature="$(stable_output_signature)"
+            [[ -n "$signature" ]] || continue
+            output_count="$(awk '{print NF}' <<<"$signature")"
+            process_count="$(dock_process_count)"
+            layer_count="$(dock_layer_count)"
+            printf 'dock_reconcile time=%s outputs="%s" processes=%s layers=%s\n' \
+                "$(date --iso-8601=seconds)" "$signature" "$process_count" "$layer_count" >>"$log_dir/watch.log"
+            reconcile_docks || true
+            last_signature="$(output_signature)"
+        fi
+    done
+}
+
+main() {
+    need_cmd hyprctl
+    need_cmd nwg-dock-hyprland
+
+    mkdir -p "$log_dir"
+
+    case "${1:-}" in
+        --watch|watch)
+            watch_docks
+            ;;
+        "")
+            reconcile_docks || die "no active Hyprland outputs found"
+            ;;
+        -h|--help|help)
+            cat <<'EOF'
+Usage:
+  mad-dock-all-monitors
+  mad-dock-all-monitors --watch
+
+Starts one nwg-dock-hyprland instance per active Hyprland output. Watch mode
+keeps running and repairs dock layers after monitor hotplug/input-switch events.
+EOF
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+}
+
+main "$@"

@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+import argparse
+import math
+import random
+import sys
+import time
+
+import cairo
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+from gi.repository import Gdk, GLib, Gtk, GtkLayerShell
+
+
+def parse_color(value, fallback):
+    value = (value or "").strip().lstrip("#")
+    if len(value) != 6:
+        value = fallback.strip().lstrip("#")
+    try:
+        return tuple(int(value[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
+    except ValueError:
+        return tuple(int(fallback[index : index + 2], 16) / 255.0 for index in (0, 2, 4))
+
+
+class BurstOverlay:
+    def __init__(self, args):
+        self.args = args
+        self.start = time.monotonic()
+        self.duration = max(args.duration_ms, 120) / 1000.0
+        self.width = max(args.width, 1)
+        self.height = max(args.height, 1)
+        self.accent = parse_color(args.accent, "EA0000")
+        self.blast = parse_color(args.blast, "FF5A1F")
+        self.shards = self.make_shards(max(args.shards, 4))
+        self.particles = self.make_particles()
+
+        self.window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        self.window.set_decorated(False)
+        self.window.set_app_paintable(True)
+        screen = self.window.get_screen()
+        visual = screen.get_rgba_visual()
+        if visual:
+            self.window.set_visual(visual)
+
+        GtkLayerShell.init_for_window(self.window)
+        GtkLayerShell.set_layer(self.window, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_keyboard_mode(self.window, GtkLayerShell.KeyboardMode.NONE)
+        for edge in (GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT, GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM):
+            GtkLayerShell.set_anchor(self.window, edge, True)
+        GtkLayerShell.set_exclusive_zone(self.window, -1)
+        try:
+            GtkLayerShell.set_namespace(self.window, "mad-window-burst")
+        except AttributeError:
+            pass
+
+        monitor = self.pick_monitor()
+        if monitor is not None:
+            GtkLayerShell.set_monitor(self.window, monitor)
+
+        self.area = Gtk.DrawingArea()
+        self.area.connect("draw", self.draw)
+        self.window.add(self.area)
+        self.window.show_all()
+
+        try:
+            self.window.input_shape_combine_region(cairo.Region())
+        except Exception:
+            pass
+
+        GLib.timeout_add(16, self.tick)
+        GLib.timeout_add(max(args.duration_ms, 120) + 80, self.finish)
+
+    def pick_monitor(self):
+        display = Gdk.Display.get_default()
+        if display is None:
+            return None
+
+        count = display.get_n_monitors()
+        if 0 <= self.args.monitor_id < count:
+            return display.get_monitor(self.args.monitor_id)
+
+        for index in range(count):
+            monitor = display.get_monitor(index)
+            geometry = monitor.get_geometry()
+            if (
+                geometry.x == self.args.monitor_x
+                and geometry.y == self.args.monitor_y
+                and geometry.width == self.args.monitor_width
+                and geometry.height == self.args.monitor_height
+            ):
+                return monitor
+
+        return display.get_primary_monitor() or (display.get_monitor(0) if count else None)
+
+    def make_shards(self, count):
+        rng = random.Random(f"synthetic:{self.width}:{self.height}:{count}")
+        cols = max(3, int(math.ceil(math.sqrt(count * 1.35))))
+        rows = max(2, int(math.ceil(count / cols)))
+        cell_w = self.width / cols
+        cell_h = self.height / rows
+        shards = []
+        center_x = self.width / 2.0
+        center_y = self.height / 2.0
+
+        for row in range(rows):
+            for col in range(cols):
+                sx = int(round(col * cell_w))
+                sy = int(round(row * cell_h))
+                sw = int(round(min(cell_w, self.width - sx)))
+                sh = int(round(min(cell_h, self.height - sy)))
+                if sw <= 0 or sh <= 0:
+                    continue
+                cx = sx + sw / 2.0
+                cy = sy + sh / 2.0
+                vx = (cx - center_x) * 0.28 + rng.uniform(-80, 80)
+                vy = (cy - center_y) * 0.22 + rng.uniform(-70, 70)
+                angle = rng.uniform(-0.55, 0.55)
+                shade = rng.uniform(0.018, 0.075)
+                shards.append((sx, sy, sw, sh, vx, vy, angle, shade))
+        return shards
+
+    def make_particles(self):
+        rng = random.Random(f"embers:{self.width}:{self.height}:{self.args.shards}")
+        particles = []
+        center_x = self.args.x + self.width / 2.0
+        center_y = self.args.y + self.height / 2.0
+        for _ in range(42):
+            angle = rng.uniform(0, math.tau)
+            speed = rng.uniform(80, 430)
+            particles.append(
+                (
+                    center_x,
+                    center_y,
+                    math.cos(angle) * speed,
+                    math.sin(angle) * speed,
+                    rng.uniform(1.4, 4.5),
+                    rng.choice((self.accent, self.blast, (1.0, 0.82, 0.42))),
+                )
+            )
+        return particles
+
+    def tick(self):
+        self.area.queue_draw()
+        return (time.monotonic() - self.start) < self.duration
+
+    def finish(self):
+        Gtk.main_quit()
+        return False
+
+    def progress(self):
+        return min(max((time.monotonic() - self.start) / self.duration, 0.0), 1.0)
+
+    def draw(self, _area, ctx):
+        progress = self.progress()
+        ease = 1.0 - (1.0 - progress) ** 3
+        fade = max(0.0, 1.0 - progress * 1.22)
+
+        ctx.set_operator(cairo.OPERATOR_CLEAR)
+        ctx.paint()
+        ctx.set_operator(cairo.OPERATOR_OVER)
+
+        self.draw_flash(ctx, progress)
+        self.draw_shards(ctx, ease, fade)
+        self.draw_particles(ctx, ease, fade)
+        return False
+
+    def draw_flash(self, ctx, progress):
+        center_x = self.args.x + self.width / 2.0
+        center_y = self.args.y + self.height / 2.0
+        blast = max(0.0, 1.0 - progress * 3.2)
+        if blast <= 0:
+            return
+
+        radius = 38 + 360 * progress
+        gradient = cairo.RadialGradient(center_x, center_y, 6, center_x, center_y, radius)
+        gradient.add_color_stop_rgba(0, 1, 0.92, 0.72, 0.85 * blast)
+        gradient.add_color_stop_rgba(0.22, self.blast[0], self.blast[1], self.blast[2], 0.50 * blast)
+        gradient.add_color_stop_rgba(1, self.accent[0], self.accent[1], self.accent[2], 0)
+        ctx.set_source(gradient)
+        ctx.arc(center_x, center_y, radius, 0, math.tau)
+        ctx.fill()
+
+        ctx.save()
+        ctx.set_line_width(4 + 8 * blast)
+        ctx.set_source_rgba(1, 0.08, 0.03, 0.80 * blast)
+        ctx.move_to(self.args.x - 160, center_y - 85)
+        ctx.line_to(self.args.x + self.width + 200, center_y + 95)
+        ctx.stroke()
+        ctx.set_line_width(1.5)
+        ctx.set_source_rgba(1, 0.86, 0.62, 0.70 * blast)
+        ctx.move_to(self.args.x - 150, center_y - 86)
+        ctx.line_to(self.args.x + self.width + 190, center_y + 94)
+        ctx.stroke()
+        ctx.restore()
+
+    def draw_shards(self, ctx, ease, fade):
+        opacity = min(1.0, max(0.0, fade))
+        gravity = 120 * ease * ease
+        for sx, sy, sw, sh, vx, vy, angle, shade in self.shards:
+            dest_x = self.args.x + sx + vx * ease
+            dest_y = self.args.y + sy + vy * ease + gravity
+            ctx.save()
+            ctx.translate(dest_x + sw / 2.0, dest_y + sh / 2.0)
+            ctx.rotate(angle * ease)
+            ctx.rectangle(-sw / 2.0, -sh / 2.0, sw, sh)
+            ctx.clip()
+            ctx.set_source_rgba(shade, shade * 0.55, shade * 0.55, opacity * 0.72)
+            ctx.paint()
+            ctx.set_source_rgba(self.accent[0], self.accent[1], self.accent[2], opacity * 0.65)
+            ctx.set_line_width(2.0)
+            ctx.rectangle(-sw / 2.0, -sh / 2.0, sw, sh)
+            ctx.stroke()
+            ctx.restore()
+
+    def draw_particles(self, ctx, ease, fade):
+        for px, py, vx, vy, size, color in self.particles:
+            x = px + vx * ease
+            y = py + vy * ease + 90 * ease * ease
+            alpha = max(0.0, fade * 0.9)
+            ctx.set_source_rgba(color[0], color[1], color[2], alpha)
+            ctx.arc(x, y, size * (1.0 + ease), 0, math.tau)
+            ctx.fill()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--x", type=int, required=True)
+    parser.add_argument("--y", type=int, required=True)
+    parser.add_argument("--width", type=int, required=True)
+    parser.add_argument("--height", type=int, required=True)
+    parser.add_argument("--monitor-id", type=int, default=0)
+    parser.add_argument("--monitor-name", default="")
+    parser.add_argument("--monitor-x", type=int, default=0)
+    parser.add_argument("--monitor-y", type=int, default=0)
+    parser.add_argument("--monitor-width", type=int, default=0)
+    parser.add_argument("--monitor-height", type=int, default=0)
+    parser.add_argument("--duration-ms", type=int, default=420)
+    parser.add_argument("--shards", type=int, default=18)
+    parser.add_argument("--accent", default="#EA0000")
+    parser.add_argument("--blast", default="#FF5A1F")
+    args = parser.parse_args()
+
+    try:
+        BurstOverlay(args)
+        Gtk.main()
+    except Exception as exc:
+        print(f"mad-window-burst: {exc}", file=sys.stderr)
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

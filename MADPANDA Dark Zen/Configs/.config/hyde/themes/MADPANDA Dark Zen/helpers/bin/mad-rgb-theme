@@ -1,0 +1,1609 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+log_base="${MAD_RGB_LOG_BASE:-${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/runs}"
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/madpanda-rgb"
+targets_file="$runtime_dir/targets.tsv"
+brightness_state_file="$runtime_dir/brightness.env"
+transition_lock_file="$runtime_dir/transition.lock"
+sdk_registry_file="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/rgb/sdk.env"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-rgb-theme apply [Theme Name]
+  mad-rgb-theme lock [Theme Name]
+  mad-rgb-theme unlock [Theme Name]
+  mad-rgb-theme clear [Theme Name]
+  mad-rgb-theme configure-local [Theme Name]
+  mad-rgb-theme gpu-mode-test [Theme Name]
+  mad-rgb-theme current
+
+Reads rgb.theme from a HyDE theme directory and applies the declared OpenRGB
+direct CLI targets. Themes without rgb.theme are ignored.
+EOF
+}
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+trim() {
+    local value="$*"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    printf '%s' "$value"
+}
+
+expand_user_path() {
+    local value="$1"
+    value="${value/#\~/$HOME}"
+    value="${value/#\$HOME/$HOME}"
+    printf '%s' "$value"
+}
+
+is_uint() {
+    [[ "${1:-}" =~ ^[0-9]+$ ]]
+}
+
+clamp_pct() {
+    local value="${1:-0}"
+    is_uint "$value" || value="0"
+    ((value > 100)) && value="100"
+    printf '%s' "$value"
+}
+
+scale_hex_color() {
+    local hex="${1#\#}"
+    local pct
+    pct="$(clamp_pct "${2:-100}")"
+    if [[ ! "$hex" =~ ^[[:xdigit:]]{6}$ ]]; then
+        printf '%s' "$hex"
+        return 0
+    fi
+
+    local r g b
+    r=$((16#${hex:0:2} * pct / 100))
+    g=$((16#${hex:2:2} * pct / 100))
+    b=$((16#${hex:4:2} * pct / 100))
+    printf '%02X%02X%02X' "$r" "$g" "$b"
+}
+
+theme_zone_targets() {
+    local list_file="$1"
+    local device="" line zones token index rest
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^([0-9]+):[[:space:]] ]]; then
+            device="${BASH_REMATCH[1]}"
+            continue
+        fi
+        [[ -n "$device" && "$line" == "  Zones:"* ]] || continue
+
+        zones="$(trim "${line#  Zones:}")"
+        [[ -n "$zones" && "$zones" != "Unknown" ]] || continue
+
+        index=0
+        while [[ -n "$zones" ]]; do
+            zones="$(trim "$zones")"
+            [[ -n "$zones" ]] || break
+            if [[ "$zones" == \'* ]]; then
+                rest="${zones:1}"
+                token="${rest%%\'*}"
+                zones="${rest#"$token"}"
+                zones="${zones#\'}"
+            else
+                if [[ "$zones" == *[[:space:]]* ]]; then
+                    token="${zones%%[[:space:]]*}"
+                    zones="${zones#"$token"}"
+                else
+                    token="$zones"
+                    zones=""
+                fi
+            fi
+            printf '%s\t%s\t%s\n' "$device" "$index" "$token"
+            index=$((index + 1))
+        done
+    done <"$list_file"
+}
+
+theme_device_targets() {
+    local list_file="$1"
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^([0-9]+):[[:space:]] ]]; then
+            printf '%s\n' "${BASH_REMATCH[1]}"
+        fi
+    done <"$list_file"
+}
+
+theme_devices() {
+    local list_file="$1"
+    local line device="" name="" type="" modes="" active_mode=""
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$line" =~ ^([0-9]+):[[:space:]](.*)$ ]]; then
+            if [[ -n "$device" ]]; then
+                printf '%s\t%s\t%s\t%s\t%s\n' "$device" "$type" "$name" "$modes" "$active_mode"
+            fi
+            device="${BASH_REMATCH[1]}"
+            name="$(trim "${BASH_REMATCH[2]}")"
+            type=""
+            modes=""
+            active_mode=""
+            continue
+        fi
+        [[ -n "$device" ]] || continue
+        if [[ "$line" == "  Type:"* ]]; then
+            type="$(trim "${line#  Type:}")"
+        elif [[ "$line" == "  Modes:"* ]]; then
+            modes="$(trim "${line#  Modes:}")"
+            active_mode=""
+            if [[ "$modes" =~ \[([^]]+)\] ]]; then
+                active_mode="${BASH_REMATCH[1]}"
+                active_mode="${active_mode#\'}"
+                active_mode="${active_mode%\'}"
+            fi
+        fi
+    done <"$list_file"
+
+    if [[ -n "$device" ]]; then
+        printf '%s\t%s\t%s\t%s\t%s\n' "$device" "$type" "$name" "$modes" "$active_mode"
+    fi
+}
+
+upper_value() {
+    printf '%s' "$1" | tr '[:lower:]' '[:upper:]'
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+theme_config_dir() {
+    printf '%s/madpanda/themes/%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}" "$(theme_slug "$1")"
+}
+
+theme_rgb_local_file() {
+    printf '%s/rgb.local.env\n' "$(theme_config_dir "$1")"
+}
+
+theme_feature_enabled() {
+    local theme="$1"
+    local feature="$2"
+    local config var value
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$(theme_slug "$theme")/features.env"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="1"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+device_matches_selector() {
+    local selector="$1"
+    local type="$2"
+    local name="$3"
+    local selector_upper type_upper name_upper
+
+    selector_upper="$(upper_value "$selector")"
+    type_upper="$(upper_value "$type")"
+    name_upper="$(upper_value "$name")"
+
+    [[ -n "$selector_upper" ]] || return 1
+    [[ "$selector_upper" == "$type_upper" || "$name_upper" == *"$selector_upper"* ]]
+}
+
+is_auto_resizable_zone() {
+    local zone_name="$1"
+    [[ "$zone_name" =~ (ARGB|Addressable|JARGB|JRAINBOW|D_LED|ADDR|Digital) ]]
+}
+
+is_selected_auto_zone() {
+    local zone_name="$1"
+    local selected="${RGB_AUTO_ZONE_NAMES:-}"
+    local zone
+    [[ -n "$selected" ]] || return 0
+    IFS=',' read -ra zones <<<"$selected"
+    for zone in "${zones[@]}"; do
+        zone="$(trim "$zone")"
+        [[ "$zone_name" == "$zone" ]] && return 0
+    done
+    return 1
+}
+
+cache_auto_targets() {
+    local list_file="$1"
+    mkdir -p "$runtime_dir"
+    : >"$targets_file"
+    while IFS= read -r device; do
+        printf 'device\t%s\n' "$device" >>"$targets_file"
+    done < <(theme_device_targets "$list_file")
+
+    if [[ -n "$RGB_AUTO_ZONE_SIZE" && "$RGB_AUTO_ZONE_SIZE" =~ ^[0-9]+$ && "$RGB_AUTO_MAX_ZONES" =~ ^[0-9]+$ ]]; then
+        while IFS=$'\t' read -r device zone zone_name; do
+            is_auto_resizable_zone "$zone_name" || continue
+            is_selected_auto_zone "$zone_name" || continue
+            ((zone < RGB_AUTO_MAX_ZONES)) || continue
+            printf 'zone\t%s\t%s\t%s\t%s\n' "$device" "$zone" "$RGB_AUTO_ZONE_SIZE" "$zone_name" >>"$targets_file"
+        done < <(theme_zone_targets "$list_file")
+    fi
+}
+
+has_cached_targets() {
+    [[ -s "$targets_file" ]] && grep -Eq '^(device|zone)[[:space:]]' "$targets_file"
+}
+
+apply_cached_targets() {
+    local root="$1"
+    local mode="$2"
+    local color="$3"
+    local speed="${4:-}"
+    local brightness="${5:-}"
+    local log_file="${6:-$root/logs/openrgb-color.log}"
+    local use_zone_size="${7:-1}"
+    local target_file="${8:-$targets_file}"
+    local kind device zone size zone_name
+    local count="0"
+    local -a openrgb_args
+
+    [[ -r "$target_file" ]] || return 1
+
+    while IFS=$'\t' read -r kind device zone size zone_name || [[ -n "${kind:-}" ]]; do
+        case "$kind" in
+            device)
+                is_uint "$device" || continue
+                openrgb_base_args openrgb_args
+                openrgb_args+=(--device "$device" --mode "$mode")
+                [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+                [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+                [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+                printf 'target=device device=%s mode=%s color=%s\n' "$device" "$mode" "$color" >>"$log_file"
+                run_openrgb "$log_file" "${openrgb_args[@]}" || true
+                count=$((count + 1))
+                ;;
+            zone)
+                is_uint "$device" || continue
+                is_uint "$zone" || continue
+                is_selected_auto_zone "${zone_name:-}" || continue
+                openrgb_base_args openrgb_args
+                openrgb_args+=(--device "$device" --zone "$zone")
+                if [[ "$use_zone_size" == "1" && -n "${size:-}" ]]; then
+                    is_uint "$size" && openrgb_args+=(--size "$size")
+                fi
+                openrgb_args+=(--mode "$mode")
+                [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+                [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+                [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+                printf 'target=zone device=%s zone=%s size=%s name=%s mode=%s color=%s\n' "$device" "$zone" "${size:-}" "${zone_name:-}" "$mode" "$color" >>"$log_file"
+                run_openrgb "$log_file" "${openrgb_args[@]}" || true
+                count=$((count + 1))
+                ;;
+        esac
+    done <"$target_file"
+
+    if [[ "$count" == "0" ]]; then
+        echo "No cached OpenRGB targets found; RGB unchanged." >>"$log_file"
+        return 1
+    fi
+
+    printf 'cached_targets=%s mode=%s color=%s\n' "$count" "$mode" "$color" >>"$log_file"
+}
+
+read_theme_rgb() {
+    local file="$1"
+    RGB_ENABLED="1"
+    RGB_MODE="static"
+    RGB_COLOR=""
+    RGB_DEVICES=""
+    RGB_TARGETS=""
+    RGB_DIRECT_COMBINED="1"
+    RGB_APPLY_TYPE_TARGETS=""
+    RGB_APPLY_ZONE_TARGETS=""
+    RGB_AUTO_ZONE_SIZE=""
+    RGB_AUTO_MAX_ZONES="8"
+    RGB_AUTO_ZONE_NAMES=""
+    RGB_SPEED=""
+    RGB_BRIGHTNESS=""
+    RGB_REQUIRE_I2C_DEV="1"
+    RGB_LOCK_BRIGHTNESS="20"
+    RGB_LOCK_DIM_STEPS="1"
+    RGB_LOCK_DIM_INTERVAL="0.35"
+    RGB_UNLOCK_HOLD_SECONDS="10"
+    RGB_UNLOCK_RAMP_STEPS="1"
+    RGB_UNLOCK_RAMP_INTERVAL="0.1"
+    RGB_TRANSITION_DRIVER="direct"
+    RGB_TRANSITION_FPS="24"
+    RGB_TRANSITION_EASING="smoothstep"
+    RGB_LOCK_TRANSITION_SECONDS="1.5"
+    RGB_UNLOCK_TRANSITION_SECONDS="1.8"
+    RGB_SDK_SERVICE="mad-openrgb-sdk.service"
+    RGB_SDK_CLIENT="$HOME/.local/bin/mad-openrgb-sdkctl"
+    RGB_SDK_SERVER="127.0.0.1:6742"
+    RGB_SDK_ENABLED="1"
+    RGB_SDK_PROVIDER="madpanda"
+    RGB_CLEAR_MODE="rainbow"
+    RGB_CLEAR_COLOR=""
+    RGB_CLEAR_SPEED=""
+    RGB_CLEAR_BRIGHTNESS="100"
+    RGB_CLEAR_TARGETS=""
+    RGB_CLEAR_DEVICE_TARGETS=""
+    RGB_CLEAR_TYPE_TARGETS=""
+    RGB_CLEAR_REQUIRED_TYPES=""
+    RGB_CLEAR_ZONE_TARGETS=""
+    RGB_CLEAR_ZONE_MODE=""
+    RGB_CLEAR_ZONE_COLOR=""
+    RGB_GPU_TEST_MODES="Rainbow,Chase,Chase Fade,Random Flicker,Spectrum Cycle"
+    RGB_GPU_TEST_HOLD_SECONDS="6"
+
+    local raw key value
+    while IFS= read -r raw || [[ -n "$raw" ]]; do
+        raw="${raw%%#*}"
+        [[ "$raw" == *"="* ]] || continue
+        key="$(trim "${raw%%=*}")"
+        value="$(trim "${raw#*=}")"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        case "$key" in
+            RGB_ENABLED) RGB_ENABLED="$value" ;;
+            RGB_MODE) RGB_MODE="$value" ;;
+            RGB_COLOR) RGB_COLOR="$value" ;;
+            RGB_DEVICES) RGB_DEVICES="$value" ;;
+            RGB_TARGETS) RGB_TARGETS="$value" ;;
+            RGB_DIRECT_COMBINED) RGB_DIRECT_COMBINED="$value" ;;
+            RGB_APPLY_TYPE_TARGETS) RGB_APPLY_TYPE_TARGETS="$value" ;;
+            RGB_APPLY_ZONE_TARGETS) RGB_APPLY_ZONE_TARGETS="$value" ;;
+            RGB_AUTO_ZONE_SIZE) RGB_AUTO_ZONE_SIZE="$value" ;;
+            RGB_AUTO_MAX_ZONES) RGB_AUTO_MAX_ZONES="$value" ;;
+            RGB_AUTO_ZONE_NAMES) RGB_AUTO_ZONE_NAMES="$value" ;;
+            RGB_SPEED) RGB_SPEED="$value" ;;
+            RGB_BRIGHTNESS) RGB_BRIGHTNESS="$value" ;;
+            RGB_REQUIRE_I2C_DEV) RGB_REQUIRE_I2C_DEV="$value" ;;
+            RGB_LOCK_BRIGHTNESS) RGB_LOCK_BRIGHTNESS="$value" ;;
+            RGB_LOCK_DIM_STEPS) RGB_LOCK_DIM_STEPS="$value" ;;
+            RGB_LOCK_DIM_INTERVAL) RGB_LOCK_DIM_INTERVAL="$value" ;;
+            RGB_UNLOCK_HOLD_SECONDS) RGB_UNLOCK_HOLD_SECONDS="$value" ;;
+            RGB_UNLOCK_RAMP_STEPS) RGB_UNLOCK_RAMP_STEPS="$value" ;;
+            RGB_UNLOCK_RAMP_INTERVAL) RGB_UNLOCK_RAMP_INTERVAL="$value" ;;
+            RGB_TRANSITION_DRIVER) RGB_TRANSITION_DRIVER="$value" ;;
+            RGB_TRANSITION_FPS) RGB_TRANSITION_FPS="$value" ;;
+            RGB_TRANSITION_EASING) RGB_TRANSITION_EASING="$value" ;;
+            RGB_LOCK_TRANSITION_SECONDS) RGB_LOCK_TRANSITION_SECONDS="$value" ;;
+            RGB_UNLOCK_TRANSITION_SECONDS) RGB_UNLOCK_TRANSITION_SECONDS="$value" ;;
+            RGB_SDK_SERVICE) RGB_SDK_SERVICE="$value" ;;
+            RGB_SDK_CLIENT) RGB_SDK_CLIENT="$(expand_user_path "$value")" ;;
+            RGB_SDK_SERVER) RGB_SDK_SERVER="$value" ;;
+            RGB_SDK_ENABLED) RGB_SDK_ENABLED="$value" ;;
+            RGB_SDK_PROVIDER) RGB_SDK_PROVIDER="$value" ;;
+            RGB_CLEAR_MODE) RGB_CLEAR_MODE="$value" ;;
+            RGB_CLEAR_COLOR) RGB_CLEAR_COLOR="$value" ;;
+            RGB_CLEAR_SPEED) RGB_CLEAR_SPEED="$value" ;;
+            RGB_CLEAR_BRIGHTNESS) RGB_CLEAR_BRIGHTNESS="$value" ;;
+            RGB_CLEAR_TARGETS) RGB_CLEAR_TARGETS="$value" ;;
+            RGB_CLEAR_DEVICE_TARGETS) RGB_CLEAR_DEVICE_TARGETS="$value" ;;
+            RGB_CLEAR_TYPE_TARGETS) RGB_CLEAR_TYPE_TARGETS="$value" ;;
+            RGB_CLEAR_REQUIRED_TYPES) RGB_CLEAR_REQUIRED_TYPES="$value" ;;
+            RGB_CLEAR_ZONE_TARGETS) RGB_CLEAR_ZONE_TARGETS="$value" ;;
+            RGB_CLEAR_ZONE_MODE) RGB_CLEAR_ZONE_MODE="$value" ;;
+            RGB_CLEAR_ZONE_COLOR) RGB_CLEAR_ZONE_COLOR="$value" ;;
+            RGB_GPU_TEST_MODES) RGB_GPU_TEST_MODES="$value" ;;
+            RGB_GPU_TEST_HOLD_SECONDS) RGB_GPU_TEST_HOLD_SECONDS="$value" ;;
+        esac
+    done <"$file"
+}
+
+read_rgb_overrides() {
+    local file="$1"
+    local raw key value
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r raw || [[ -n "$raw" ]]; do
+        raw="${raw%%#*}"
+        [[ "$raw" == *"="* ]] || continue
+        key="$(trim "${raw%%=*}")"
+        value="$(trim "${raw#*=}")"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        case "$key" in
+            RGB_MODE) RGB_MODE="$value" ;;
+            RGB_COLOR) RGB_COLOR="$value" ;;
+            RGB_DEVICES) RGB_DEVICES="$value" ;;
+            RGB_TARGETS) RGB_TARGETS="$value" ;;
+            RGB_DIRECT_COMBINED) RGB_DIRECT_COMBINED="$value" ;;
+            RGB_APPLY_TYPE_TARGETS) RGB_APPLY_TYPE_TARGETS="$value" ;;
+            RGB_APPLY_ZONE_TARGETS) RGB_APPLY_ZONE_TARGETS="$value" ;;
+            RGB_AUTO_ZONE_SIZE) RGB_AUTO_ZONE_SIZE="$value" ;;
+            RGB_AUTO_MAX_ZONES) RGB_AUTO_MAX_ZONES="$value" ;;
+            RGB_AUTO_ZONE_NAMES) RGB_AUTO_ZONE_NAMES="$value" ;;
+            RGB_SPEED) RGB_SPEED="$value" ;;
+            RGB_BRIGHTNESS) RGB_BRIGHTNESS="$value" ;;
+            RGB_LOCK_BRIGHTNESS) RGB_LOCK_BRIGHTNESS="$value" ;;
+            RGB_TRANSITION_DRIVER) RGB_TRANSITION_DRIVER="$value" ;;
+            RGB_TRANSITION_FPS) RGB_TRANSITION_FPS="$value" ;;
+            RGB_TRANSITION_EASING) RGB_TRANSITION_EASING="$value" ;;
+            RGB_LOCK_TRANSITION_SECONDS) RGB_LOCK_TRANSITION_SECONDS="$value" ;;
+            RGB_UNLOCK_TRANSITION_SECONDS) RGB_UNLOCK_TRANSITION_SECONDS="$value" ;;
+            RGB_SDK_SERVICE) RGB_SDK_SERVICE="$value" ;;
+            RGB_SDK_CLIENT) RGB_SDK_CLIENT="$(expand_user_path "$value")" ;;
+            RGB_CLEAR_MODE) RGB_CLEAR_MODE="$value" ;;
+            RGB_CLEAR_COLOR) RGB_CLEAR_COLOR="$value" ;;
+            RGB_CLEAR_SPEED) RGB_CLEAR_SPEED="$value" ;;
+            RGB_CLEAR_BRIGHTNESS) RGB_CLEAR_BRIGHTNESS="$value" ;;
+            RGB_CLEAR_TARGETS) RGB_CLEAR_TARGETS="$value" ;;
+            RGB_CLEAR_DEVICE_TARGETS) RGB_CLEAR_DEVICE_TARGETS="$value" ;;
+            RGB_CLEAR_TYPE_TARGETS) RGB_CLEAR_TYPE_TARGETS="$value" ;;
+            RGB_CLEAR_REQUIRED_TYPES) RGB_CLEAR_REQUIRED_TYPES="$value" ;;
+            RGB_CLEAR_ZONE_TARGETS) RGB_CLEAR_ZONE_TARGETS="$value" ;;
+            RGB_CLEAR_ZONE_MODE) RGB_CLEAR_ZONE_MODE="$value" ;;
+            RGB_CLEAR_ZONE_COLOR) RGB_CLEAR_ZONE_COLOR="$value" ;;
+            RGB_GPU_TEST_MODES) RGB_GPU_TEST_MODES="$value" ;;
+            RGB_GPU_TEST_HOLD_SECONDS) RGB_GPU_TEST_HOLD_SECONDS="$value" ;;
+        esac
+    done <"$file"
+}
+
+read_sdk_registry() {
+    local raw key value host="" port="" service="" enabled="" provider=""
+    [[ -r "$sdk_registry_file" ]] || return 0
+    while IFS= read -r raw || [[ -n "$raw" ]]; do
+        raw="${raw%%#*}"
+        [[ "$raw" == *"="* ]] || continue
+        key="$(trim "${raw%%=*}")"
+        value="$(trim "${raw#*=}")"
+        value="${value%\"}"
+        value="${value#\"}"
+        value="${value%\'}"
+        value="${value#\'}"
+        case "$key" in
+            MAD_OPENRGB_SDK_ENABLED) enabled="$value" ;;
+            MAD_OPENRGB_SDK_SERVICE) service="$value" ;;
+            MAD_OPENRGB_SDK_HOST) host="$value" ;;
+            MAD_OPENRGB_SDK_PORT) port="$value" ;;
+            MAD_OPENRGB_SDK_PROVIDER) provider="$value" ;;
+        esac
+    done <"$sdk_registry_file"
+    [[ -n "$enabled" ]] && RGB_SDK_ENABLED="$enabled"
+    [[ -n "$provider" ]] && RGB_SDK_PROVIDER="$provider"
+    [[ -n "$service" ]] && RGB_SDK_SERVICE="$service"
+    if [[ -n "$host" || -n "$port" ]]; then
+        host="${host:-${RGB_SDK_SERVER%:*}}"
+        port="${port:-${RGB_SDK_SERVER##*:}}"
+        RGB_SDK_SERVER="$host:$port"
+    fi
+}
+
+valid_user_service() {
+    [[ "${1:-}" =~ ^[A-Za-z0-9_.@-]+\.service$ ]]
+}
+
+openrgb_base_args() {
+    local -n target_args="$1"
+    target_args=(--noautoconnect --loglevel warning)
+}
+
+make_run_root() {
+    local theme="$1"
+    local safe_theme ts
+    safe_theme="$(printf '%s' "$theme" | tr ' /' '__' | tr -cd '[:alnum:]_.-')"
+    ts="$(date +%Y%m%dT%H%M%S%z)"
+    printf '%s/openrgb-theme-%s-%s\n' "$log_base" "$ts" "$safe_theme"
+}
+
+ensure_i2c_dev() {
+    [[ "${RGB_REQUIRE_I2C_DEV:-1}" == "1" ]] || return 0
+    compgen -G '/dev/i2c-*' >/dev/null && return 0
+    sudo -n modprobe i2c-dev
+}
+
+has_openrgb_devices() {
+    local list_file="$1"
+    [[ -r "$list_file" ]] && grep -Eq '^[0-9]+:[[:space:]]' "$list_file"
+}
+
+run_openrgb() {
+    local log_file="$1"
+    local rc
+    shift
+    printf 'openrgb_start=%s command=%q' "$(date --iso-8601=ns)" openrgb >>"$log_file"
+    printf ' %q' "$@" >>"$log_file"
+    printf '\n' >>"$log_file"
+    if openrgb "$@" >>"$log_file" 2>&1; then
+        printf 'openrgb_end=%s status=ok\n' "$(date --iso-8601=ns)" >>"$log_file"
+        return 0
+    else
+        rc="$?"
+        printf 'openrgb_end=%s status=failed rc=%s\n' "$(date --iso-8601=ns)" "$rc" >>"$log_file"
+        printf 'openrgb command failed: %q' openrgb >>"$log_file"
+        printf ' %q' "$@" >>"$log_file"
+        printf '\n' >>"$log_file"
+        return 1
+    fi
+}
+
+is_number() {
+    [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+write_brightness_state() {
+    local phase="$1"
+    local pct="$2"
+    mkdir -p "$runtime_dir"
+    {
+        printf 'updated_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'theme=%s\n' "${RGB_THEME:-}"
+        printf 'phase=%s\n' "$phase"
+        printf 'brightness=%s\n' "$(clamp_pct "$pct")"
+    } >"$brightness_state_file"
+}
+
+read_brightness_state() {
+    if [[ -r "$brightness_state_file" ]]; then
+        sed -n 's/^brightness=//p' "$brightness_state_file" | tail -n 1
+    fi
+}
+
+sdk_socket_ready() {
+    local log_file="$1"
+    local host port
+    [[ "${RGB_SDK_ENABLED:-1}" == "1" ]] || return 1
+    [[ -x "$RGB_SDK_CLIENT" ]] || return 1
+    host="${RGB_SDK_SERVER%:*}"
+    port="${RGB_SDK_SERVER##*:}"
+    "$RGB_SDK_CLIENT" --host "$host" --port "$port" plugin-list >>"$log_file" 2>&1
+}
+
+sdk_service_candidates() {
+    local service
+    for service in "${RGB_SDK_SERVICE:-}" mad-openrgb-sdk.service; do
+        [[ -n "$service" ]] || continue
+        valid_user_service "$service" || continue
+        printf '%s\n' "$service"
+    done | awk '!seen[$0]++'
+}
+
+pause_sdk_for_direct() {
+    local log_file="$1"
+    local service
+    SDK_PAUSED_SERVICES=""
+    valid_user_service "$RGB_SDK_SERVICE" || {
+        echo "Invalid RGB_SDK_SERVICE=$RGB_SDK_SERVICE; SDK service unchanged." >>"$log_file"
+        return 0
+    }
+    command -v systemctl >/dev/null 2>&1 || return 0
+    while IFS= read -r service; do
+        if systemctl --user is-active --quiet "$service"; then
+            SDK_PAUSED_SERVICES="${SDK_PAUSED_SERVICES:+$SDK_PAUSED_SERVICES }$service"
+            systemctl --user stop "$service" >>"$log_file" 2>&1 || true
+        fi
+    done < <(sdk_service_candidates)
+    printf 'sdk_paused_services=%s\n' "${SDK_PAUSED_SERVICES:-}" >>"$log_file"
+}
+
+resume_sdk_after_direct() {
+    local log_file="$1"
+    local service
+    [[ "${MAD_RGB_NO_SDK_RESTART:-0}" != "1" ]] || {
+        echo "sdk_resume=skipped reason=no_restart_requested" >>"$log_file"
+        return 0
+    }
+    [[ "${RGB_SDK_ENABLED:-1}" == "1" ]] || {
+        echo "sdk_resume=skipped reason=sdk_disabled" >>"$log_file"
+        return 0
+    }
+    command -v systemctl >/dev/null 2>&1 || return 0
+    if [[ -n "${SDK_PAUSED_SERVICES:-}" ]]; then
+        for service in $SDK_PAUSED_SERVICES; do
+            valid_user_service "$service" || continue
+            systemctl --user start "$service" >>"$log_file" 2>&1 || true
+            break
+        done
+        return 0
+    fi
+    if [[ "${RGB_TRANSITION_DRIVER:-direct}" == "sdk" ]]; then
+        ensure_sdk_service "$log_file" || true
+    fi
+}
+
+acquire_transition_lock() {
+    local log_file="$1"
+    mkdir -p "$runtime_dir"
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"$transition_lock_file"
+        if ! flock -n 9; then
+            echo "RGB transition already running; skipping duplicate request." >>"$log_file"
+            return 1
+        fi
+    else
+        echo "flock unavailable; continuing without duplicate-transition guard." >>"$log_file"
+    fi
+}
+
+ensure_sdk_service() {
+    local log_file="$1"
+    [[ "${RGB_TRANSITION_DRIVER:-direct}" == "sdk" ]] || return 1
+    [[ "${RGB_SDK_ENABLED:-1}" == "1" ]] || { echo "OpenRGB SDK is disabled by registry." >>"$log_file"; return 1; }
+    [[ -x "$RGB_SDK_CLIENT" ]] || {
+        echo "OpenRGB SDK client helper is not executable: $RGB_SDK_CLIENT" >>"$log_file"
+        return 1
+    }
+    valid_user_service "$RGB_SDK_SERVICE" || {
+        echo "Invalid RGB_SDK_SERVICE=$RGB_SDK_SERVICE." >>"$log_file"
+        return 1
+    }
+    command -v systemctl >/dev/null 2>&1 || {
+        echo "systemctl unavailable; SDK transition skipped." >>"$log_file"
+        return 1
+    }
+
+    if sdk_socket_ready "$log_file"; then
+        echo "OpenRGB SDK socket already ready; reusing existing provider." >>"$log_file"
+        return 0
+    fi
+
+    systemctl --user start "$RGB_SDK_SERVICE" >>"$log_file" 2>&1 || return 1
+
+    local attempt host port
+    host="${RGB_SDK_SERVER%:*}"
+    port="${RGB_SDK_SERVER##*:}"
+    for attempt in {1..30}; do
+        "$RGB_SDK_CLIENT" --host "$host" --port "$port" plugin-list >>"$log_file" 2>&1 && return 0
+        sleep 0.2
+    done
+    echo "OpenRGB SDK server did not become ready." >>"$log_file"
+    return 1
+}
+
+ensure_transition_targets() {
+    local root="$1"
+    local log_file="$2"
+
+    if ! has_cached_targets; then
+        openrgb --noautoconnect --list-devices --loglevel warning >"$root/logs/openrgb-list-devices.before.txt" 2>&1 || true
+        if has_openrgb_devices "$root/logs/openrgb-list-devices.before.txt"; then
+            cache_auto_targets "$root/logs/openrgb-list-devices.before.txt"
+        fi
+    fi
+
+    if has_cached_targets; then
+        cp -a "$targets_file" "$root/logs/openrgb-targets.tsv"
+        return 0
+    fi
+
+    echo "No cached OpenRGB transition targets found." >>"$log_file"
+    return 1
+}
+
+run_sdk_transition() {
+    local root="$1"
+    local phase="$2"
+    local from_pct="$3"
+    local to_pct="$4"
+    local duration="$5"
+    local log_file="$root/logs/openrgb-$phase-sdk-transition.log"
+    local host port fps easing
+
+    from_pct="$(clamp_pct "$from_pct")"
+    to_pct="$(clamp_pct "$to_pct")"
+    is_number "$duration" || duration="1.5"
+    fps="${RGB_TRANSITION_FPS:-24}"
+    is_number "$fps" || fps="24"
+    easing="${RGB_TRANSITION_EASING:-smoothstep}"
+    [[ "$easing" == "linear" || "$easing" == "smoothstep" ]] || easing="smoothstep"
+
+    acquire_transition_lock "$log_file" || return 2
+    ensure_sdk_service "$log_file" || return 1
+    ensure_transition_targets "$root" "$log_file" || return 1
+
+    host="${RGB_SDK_SERVER%:*}"
+    port="${RGB_SDK_SERVER##*:}"
+    printf 'sdk_transition phase=%s from=%s to=%s duration=%s fps=%s easing=%s\n' \
+        "$phase" "$from_pct" "$to_pct" "$duration" "$fps" "$easing" >>"$log_file"
+    "$RGB_SDK_CLIENT" \
+        --host "$host" \
+        --port "$port" \
+        transition \
+        --targets-file "$targets_file" \
+        --color "$RGB_COLOR" \
+        --from-brightness "$from_pct" \
+        --to-brightness "$to_pct" \
+        --duration "$duration" \
+        --fps "$fps" \
+        --easing "$easing" \
+        --verbose >>"$log_file" 2>&1
+}
+
+resize_auto_zones_direct() {
+    local root="$1"
+    local mode="$2"
+    local color="$3"
+    local brightness="$4"
+    local log_file="$root/logs/openrgb-auto-zone-resize.log"
+    local list_file="$root/logs/openrgb-list-devices.before.txt"
+    local device zone zone_name
+    local -a openrgb_args
+
+    [[ -n "${RGB_AUTO_ZONE_SIZE:-}" ]] || return 0
+    is_uint "$RGB_AUTO_ZONE_SIZE" || return 0
+    [[ -r "$list_file" ]] && has_openrgb_devices "$list_file" || return 0
+
+    while IFS=$'\t' read -r device zone zone_name; do
+        is_auto_resizable_zone "$zone_name" || continue
+        is_selected_auto_zone "$zone_name" || continue
+        ((zone < RGB_AUTO_MAX_ZONES)) || continue
+        openrgb_args=(--noautoconnect --loglevel warning --device "$device" --zone "$zone" --size "$RGB_AUTO_ZONE_SIZE")
+        if [[ -n "$mode" ]]; then
+            openrgb_args+=(--mode "$mode")
+            [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+            [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+        fi
+        printf 'resize_auto_zone device=%s zone=%s name=%s size=%s mode=%s color=%s\n' "$device" "$zone" "$zone_name" "$RGB_AUTO_ZONE_SIZE" "${mode:-}" "${color:-}" >>"$log_file"
+        run_openrgb "$log_file" "${openrgb_args[@]}" || true
+    done < <(theme_zone_targets "$list_file")
+}
+
+prepare_rgb_run() {
+    local phase="$1"
+    local theme="${2:-}"
+    local detect_devices="${3:-1}"
+    [[ -n "$theme" ]] || theme="$(current_theme)"
+    [[ -n "$theme" ]] || { echo "No active HyDE theme found." >&2; return 1; }
+
+    RGB_THEME="$theme"
+    RGB_FILE="$theme_root/$theme/rgb.theme"
+    if [[ ! -r "$RGB_FILE" ]]; then
+        echo "No rgb.theme for $theme; RGB unchanged."
+        return 1
+    fi
+    if ! command -v openrgb >/dev/null 2>&1; then
+        echo "openrgb is not installed; RGB unchanged." >&2
+        return 1
+    fi
+
+    read_theme_rgb "$RGB_FILE"
+    RGB_LOCAL_FILE="$(theme_rgb_local_file "$theme")"
+    if [[ -r "$RGB_LOCAL_FILE" ]]; then
+        read_rgb_overrides "$RGB_LOCAL_FILE"
+    fi
+    read_sdk_registry
+    if ! theme_feature_enabled "$theme" rgb; then
+        echo "RGB feature disabled for $theme."
+        return 1
+    fi
+    if [[ "$RGB_ENABLED" != "1" ]]; then
+        echo "RGB disabled for $theme."
+        return 1
+    fi
+
+    RGB_RUN_ROOT="${MAD_RGB_THEME_LOG_ROOT:-$(make_run_root "$theme-$phase")}"
+    mkdir -p "$RGB_RUN_ROOT/logs" "$RGB_RUN_ROOT/live"
+    cp -a "$RGB_FILE" "$RGB_RUN_ROOT/live/rgb.theme"
+    {
+        printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'theme=%s\n' "$theme"
+        printf 'phase=%s\n' "$phase"
+        printf 'rgb_file=%s\n' "$RGB_FILE"
+        printf 'rgb_local_file=%s\n' "${RGB_LOCAL_FILE:-}"
+        printf 'sdk_registry_file=%s\n' "$sdk_registry_file"
+        printf 'mode=%s\n' "$RGB_MODE"
+        printf 'color=%s\n' "$RGB_COLOR"
+        printf 'devices=%s\n' "$RGB_DEVICES"
+        printf 'targets=%s\n' "$RGB_TARGETS"
+        printf 'direct_combined=%s\n' "$RGB_DIRECT_COMBINED"
+        printf 'apply_type_targets=%s\n' "$RGB_APPLY_TYPE_TARGETS"
+        printf 'apply_zone_targets=%s\n' "$RGB_APPLY_ZONE_TARGETS"
+        printf 'auto_zone_size=%s\n' "$RGB_AUTO_ZONE_SIZE"
+        printf 'auto_max_zones=%s\n' "$RGB_AUTO_MAX_ZONES"
+        printf 'auto_zone_names=%s\n' "$RGB_AUTO_ZONE_NAMES"
+        printf 'speed=%s\n' "$RGB_SPEED"
+        printf 'brightness=%s\n' "$RGB_BRIGHTNESS"
+        printf 'lock_brightness=%s\n' "$RGB_LOCK_BRIGHTNESS"
+        printf 'lock_dim_steps=%s\n' "$RGB_LOCK_DIM_STEPS"
+        printf 'lock_dim_interval=%s\n' "$RGB_LOCK_DIM_INTERVAL"
+        printf 'unlock_hold_seconds=%s\n' "$RGB_UNLOCK_HOLD_SECONDS"
+        printf 'unlock_ramp_steps=%s\n' "$RGB_UNLOCK_RAMP_STEPS"
+        printf 'unlock_ramp_interval=%s\n' "$RGB_UNLOCK_RAMP_INTERVAL"
+        printf 'transition_driver=%s\n' "$RGB_TRANSITION_DRIVER"
+        printf 'transition_fps=%s\n' "$RGB_TRANSITION_FPS"
+        printf 'transition_easing=%s\n' "$RGB_TRANSITION_EASING"
+        printf 'lock_transition_seconds=%s\n' "$RGB_LOCK_TRANSITION_SECONDS"
+        printf 'unlock_transition_seconds=%s\n' "$RGB_UNLOCK_TRANSITION_SECONDS"
+        printf 'sdk_service=%s\n' "$RGB_SDK_SERVICE"
+        printf 'sdk_client=%s\n' "$RGB_SDK_CLIENT"
+        printf 'sdk_server=%s\n' "$RGB_SDK_SERVER"
+        printf 'sdk_enabled=%s\n' "$RGB_SDK_ENABLED"
+        printf 'sdk_provider=%s\n' "$RGB_SDK_PROVIDER"
+        printf 'clear_mode=%s\n' "$RGB_CLEAR_MODE"
+        printf 'clear_color=%s\n' "$RGB_CLEAR_COLOR"
+        printf 'clear_speed=%s\n' "$RGB_CLEAR_SPEED"
+        printf 'clear_brightness=%s\n' "$RGB_CLEAR_BRIGHTNESS"
+        printf 'clear_targets=%s\n' "$RGB_CLEAR_TARGETS"
+        printf 'clear_device_targets=%s\n' "$RGB_CLEAR_DEVICE_TARGETS"
+        printf 'clear_type_targets=%s\n' "$RGB_CLEAR_TYPE_TARGETS"
+        printf 'clear_required_types=%s\n' "$RGB_CLEAR_REQUIRED_TYPES"
+        printf 'clear_zone_targets=%s\n' "$RGB_CLEAR_ZONE_TARGETS"
+        printf 'clear_zone_mode=%s\n' "$RGB_CLEAR_ZONE_MODE"
+        printf 'clear_zone_color=%s\n' "$RGB_CLEAR_ZONE_COLOR"
+        printf 'gpu_test_modes=%s\n' "$RGB_GPU_TEST_MODES"
+        printf 'gpu_test_hold_seconds=%s\n' "$RGB_GPU_TEST_HOLD_SECONDS"
+    } >"$RGB_RUN_ROOT/summary.env"
+
+    ensure_i2c_dev >"$RGB_RUN_ROOT/logs/modprobe-i2c-dev.log" 2>&1 || true
+    if [[ "$detect_devices" == "1" ]]; then
+        detect_rgb_devices "$RGB_RUN_ROOT" before "$RGB_RUN_ROOT/logs/openrgb-color.log" || return 2
+    fi
+}
+
+detect_rgb_devices() {
+    local root="$1"
+    local label="${2:-before}"
+    local log_file="${3:-$root/logs/openrgb-detect.log}"
+    local list_file="$root/logs/openrgb-list-devices.$label.txt"
+
+    openrgb --noautoconnect --list-devices --loglevel warning >"$list_file" 2>&1 || true
+    if ! has_openrgb_devices "$list_file"; then
+        echo "No OpenRGB devices detected; RGB unchanged." | tee -a "$log_file"
+        return 1
+    fi
+}
+
+apply_color_to_targets() {
+    local root="$1"
+    local mode="$2"
+    local color="$3"
+    local speed="${4:-}"
+    local brightness="${5:-}"
+    local log_file="${6:-$root/logs/openrgb-color.log}"
+    local apply_auto_zones="${7:-1}"
+    local list_file="$root/logs/openrgb-list-devices.before.txt"
+
+    [[ -n "$mode" ]] || { echo "No RGB mode configured; RGB unchanged." >>"$log_file"; return 0; }
+    if [[ "$mode" == "static" && -z "$color" ]]; then
+        echo "Static RGB mode requires a color; RGB unchanged." >>"$log_file"
+        return 0
+    fi
+    if [[ -r "$list_file" ]] && ! has_openrgb_devices "$list_file"; then
+        echo "No OpenRGB devices detected; RGB unchanged." >>"$log_file"
+        return 0
+    fi
+
+    local -a openrgb_args targets devices
+    local target device zone size
+
+    if [[ "$RGB_TARGETS" == "auto" ]]; then
+        if [[ -r "$list_file" ]] && has_openrgb_devices "$list_file"; then
+            cache_auto_targets "$list_file"
+            cp -a "$targets_file" "$root/logs/openrgb-targets.tsv"
+        fi
+        if has_cached_targets; then
+            apply_cached_targets "$root" "$mode" "$color" "$speed" "$brightness" "$log_file" "$apply_auto_zones" || true
+            return 0
+        fi
+
+        openrgb_base_args openrgb_args
+        openrgb_args+=(--mode "$mode")
+        [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+        [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+        [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+        run_openrgb "$log_file" "${openrgb_args[@]}" || true
+
+        if [[ "$apply_auto_zones" == "1" && -n "$RGB_AUTO_ZONE_SIZE" && -r "$list_file" ]]; then
+            if ! is_uint "$RGB_AUTO_ZONE_SIZE"; then
+                echo "RGB_AUTO_ZONE_SIZE must be numeric; skipping zone resize." >"$root/logs/openrgb-auto-zones.log"
+            elif ! is_uint "$RGB_AUTO_MAX_ZONES"; then
+                echo "RGB_AUTO_MAX_ZONES must be numeric; skipping zone resize." >"$root/logs/openrgb-auto-zones.log"
+            else
+                while IFS=$'\t' read -r device zone zone_name; do
+                    is_auto_resizable_zone "$zone_name" || continue
+                    ((zone < RGB_AUTO_MAX_ZONES)) || continue
+                    printf 'auto_zone device=%s zone=%s name=%s size=%s mode=%s color=%s\n' "$device" "$zone" "$zone_name" "$RGB_AUTO_ZONE_SIZE" "$mode" "$color" >>"$root/logs/openrgb-auto-zones.log"
+                    openrgb_base_args openrgb_args
+                    openrgb_args+=(--device "$device" --zone "$zone" --size "$RGB_AUTO_ZONE_SIZE" --mode "$mode")
+                    [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+                    [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+                    [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+                    run_openrgb "$root/logs/openrgb-auto-zones.log" "${openrgb_args[@]}" || true
+                done < <(theme_zone_targets "$list_file")
+            fi
+        fi
+    elif [[ -n "$RGB_TARGETS" ]]; then
+        IFS=',' read -ra targets <<<"$RGB_TARGETS"
+        for target in "${targets[@]}"; do
+            target="$(trim "$target")"
+            [[ -n "$target" ]] || continue
+            IFS=':' read -r device zone size <<<"$target"
+            device="$(trim "$device")"
+            zone="$(trim "${zone:-}")"
+            size="$(trim "${size:-}")"
+            [[ -n "$device" ]] || continue
+            openrgb_base_args openrgb_args
+            openrgb_args+=(--device "$device")
+            if [[ -n "$zone" ]]; then
+                openrgb_args+=(--zone "$zone")
+                [[ -n "$size" ]] && openrgb_args+=(--size "$size")
+            fi
+            openrgb_args+=(--mode "$mode")
+            [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+            [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+            [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+            printf 'target=explicit device=%s zone=%s size=%s mode=%s color=%s\n' "$device" "${zone:-}" "${size:-}" "$mode" "$color" >>"$log_file"
+            run_openrgb "$log_file" "${openrgb_args[@]}" || true
+        done
+    elif [[ -n "$RGB_DEVICES" ]]; then
+        IFS=',' read -ra devices <<<"$RGB_DEVICES"
+        for device in "${devices[@]}"; do
+            device="$(trim "$device")"
+            [[ -n "$device" ]] || continue
+            openrgb_base_args openrgb_args
+            openrgb_args+=(--device "$device" --mode "$mode")
+            [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+            [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+            [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+            printf 'target=device device=%s mode=%s color=%s\n' "$device" "$mode" "$color" >>"$log_file"
+            run_openrgb "$log_file" "${openrgb_args[@]}" || true
+        done
+    else
+        openrgb_base_args openrgb_args
+        openrgb_args+=(--mode "$mode")
+        [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+        [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+        [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+        printf 'target=global mode=%s color=%s\n' "$mode" "$color" >>"$log_file"
+        run_openrgb "$log_file" "${openrgb_args[@]}" || true
+    fi
+}
+
+finish_rgb_run() {
+    local root="$1"
+    local applied="$2"
+    local detect_devices="${3:-1}"
+    if [[ "$detect_devices" == "1" ]]; then
+        openrgb --noautoconnect --list-devices --loglevel warning >"$root/logs/openrgb-list-devices.after.txt" 2>&1 || true
+    fi
+    {
+        printf 'finished_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'applied=%s\n' "$applied"
+        printf 'log_root=%s\n' "$root"
+    } >>"$root/summary.env"
+}
+
+apply_explicit_zone_targets_once() {
+    local targets="$1"
+    local mode="$2"
+    local color="$3"
+    local speed="${4:-}"
+    local brightness="${5:-}"
+    local log_file="$6"
+    local label="${7:-zone_targets}"
+    local target device zone size
+    local -a target_list openrgb_args
+
+    [[ -n "$targets" ]] || return 0
+    openrgb_args=(--noautoconnect --loglevel warning)
+    IFS=',' read -ra target_list <<<"$targets"
+    for target in "${target_list[@]}"; do
+        target="$(trim "$target")"
+        [[ -n "$target" ]] || continue
+        IFS=':' read -r device zone size <<<"$target"
+        device="$(trim "$device")"
+        zone="$(trim "${zone:-}")"
+        size="$(trim "${size:-}")"
+        is_uint "$device" || continue
+        is_uint "$zone" || continue
+        openrgb_args+=(--device "$device" --zone "$zone")
+        [[ -n "$size" ]] && is_uint "$size" && openrgb_args+=(--size "$size")
+        openrgb_args+=(--mode "$mode")
+        [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+        [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+        [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+        printf '%s device=%s zone=%s size=%s mode=%s color=%s\n' "$label" "$device" "$zone" "${size:-}" "$mode" "$color" >>"$log_file"
+    done
+
+    ((${#openrgb_args[@]} > 2)) || return 0
+    run_openrgb "$log_file" "${openrgb_args[@]}" || true
+}
+
+direct_combined_enabled() {
+    [[ "${RGB_DIRECT_COMBINED:-1}" == "1" ]]
+}
+
+apply_combined_direct_targets() {
+    local list_file="$1"
+    local type_targets="$2"
+    local zone_targets="$3"
+    local default_mode="$4"
+    local color="$5"
+    local speed="$6"
+    local brightness="$7"
+    local zone_mode="$8"
+    local zone_color="$9"
+    local zone_speed="${10}"
+    local zone_brightness="${11}"
+    local log_file="${12}"
+    local label="${13:-direct_combined}"
+    local target device zone size selector mode type name modes active_mode count="0"
+    local -a openrgb_args target_list
+
+    direct_combined_enabled || return 1
+    [[ -n "$type_targets" || -n "$zone_targets" ]] || return 1
+    openrgb_base_args openrgb_args
+
+    if [[ -n "$zone_targets" ]]; then
+        IFS=',' read -ra target_list <<<"$zone_targets"
+        for target in "${target_list[@]}"; do
+            target="$(trim "$target")"
+            [[ -n "$target" ]] || continue
+            IFS=':' read -r device zone size <<<"$target"
+            device="$(trim "$device")"
+            zone="$(trim "${zone:-}")"
+            size="$(trim "${size:-}")"
+            is_uint "$device" || continue
+            is_uint "$zone" || continue
+            openrgb_args+=(--device "$device" --zone "$zone")
+            [[ -n "$size" ]] && is_uint "$size" && openrgb_args+=(--size "$size")
+            openrgb_args+=(--mode "$zone_mode")
+            [[ -n "$zone_color" ]] && openrgb_args+=(--color "$zone_color")
+            [[ -n "$zone_speed" ]] && openrgb_args+=(--speed "$zone_speed")
+            [[ -n "$zone_brightness" ]] && openrgb_args+=(--brightness "$zone_brightness")
+            printf '%s_zone device=%s zone=%s size=%s mode=%s color=%s\n' "$label" "$device" "$zone" "${size:-}" "$zone_mode" "$zone_color" >>"$log_file"
+            count=$((count + 1))
+        done
+    fi
+
+    if [[ -n "$type_targets" && -r "$list_file" ]]; then
+        IFS=',' read -ra target_list <<<"$type_targets"
+        for target in "${target_list[@]}"; do
+            target="$(trim "$target")"
+            [[ -n "$target" ]] || continue
+            selector="$(trim "${target%%:*}")"
+            mode="$(trim "${target#*:}")"
+            [[ "$mode" == "$target" ]] && mode="$default_mode"
+            [[ -n "$selector" ]] || continue
+            while IFS=$'\t' read -r device type name modes active_mode; do
+                device_matches_selector "$selector" "$type" "$name" || continue
+                is_uint "$device" || continue
+                openrgb_args+=(--device "$device" --mode "$mode")
+                [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+                [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+                [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+                printf '%s_type device=%s type=%s name=%s selector=%s mode=%s color=%s\n' "$label" "$device" "$type" "$name" "$selector" "$mode" "$color" >>"$log_file"
+                count=$((count + 1))
+            done < <(theme_devices "$list_file")
+        done
+    fi
+
+    ((count > 0)) || return 1
+    run_openrgb "$log_file" "${openrgb_args[@]}"
+}
+
+apply_theme_rgb_direct() {
+    local root="$1"
+    local applied="0"
+    local list_file="$root/logs/openrgb-list-devices.before.txt"
+
+    detect_rgb_devices "$root" before "$root/logs/openrgb-color.log" || return 2
+    if [[ -n "${RGB_APPLY_ZONE_TARGETS:-}" || -n "${RGB_APPLY_TYPE_TARGETS:-}" ]]; then
+        if apply_combined_direct_targets \
+            "$list_file" \
+            "${RGB_APPLY_TYPE_TARGETS:-}" \
+            "${RGB_APPLY_ZONE_TARGETS:-}" \
+            "$RGB_MODE" \
+            "$RGB_COLOR" \
+            "$RGB_SPEED" \
+            "$RGB_BRIGHTNESS" \
+            "$RGB_MODE" \
+            "$RGB_COLOR" \
+            "$RGB_SPEED" \
+            "$RGB_BRIGHTNESS" \
+            "$root/logs/openrgb-apply-combined.log" \
+            "apply_combined"; then
+            return 0
+        fi
+        echo "apply_combined status=fallback_to_separate" >>"$root/logs/openrgb-color.log"
+        if [[ -n "${RGB_APPLY_ZONE_TARGETS:-}" ]]; then
+            apply_explicit_zone_targets_once \
+                "$RGB_APPLY_ZONE_TARGETS" \
+                "$RGB_MODE" \
+                "$RGB_COLOR" \
+                "$RGB_SPEED" \
+                "$RGB_BRIGHTNESS" \
+                "$root/logs/openrgb-apply-zones.log" \
+                "apply_zone" || true
+            applied="1"
+        fi
+        if [[ -n "${RGB_APPLY_TYPE_TARGETS:-}" ]]; then
+            apply_type_targets "$list_file" "$RGB_APPLY_TYPE_TARGETS" "$RGB_MODE" "$RGB_COLOR" "$RGB_SPEED" "$RGB_BRIGHTNESS" "$root/logs/openrgb-color.log" "apply_type" && applied="1" || true
+        fi
+        [[ "$applied" == "1" ]] && return 0
+    fi
+    resize_auto_zones_direct "$root" "$RGB_MODE" "$RGB_COLOR" "$RGB_BRIGHTNESS"
+    if [[ -n "$RGB_COLOR" ]]; then
+        apply_color_to_targets "$root" "$RGB_MODE" "$RGB_COLOR" "$RGB_SPEED" "$RGB_BRIGHTNESS" "$root/logs/openrgb-color.log"
+        applied="1"
+    fi
+    [[ "$applied" == "1" ]]
+}
+
+apply_theme_rgb() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run apply "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local applied="0"
+
+    pause_sdk_for_direct "$root/logs/openrgb-sdk-service.log"
+    if apply_theme_rgb_direct "$root"; then
+        applied="1"
+    else
+        resume_sdk_after_direct "$root/logs/openrgb-sdk-service.log"
+        finish_rgb_run "$root" "0" "0"
+        echo "RGB apply skipped for $RGB_THEME: OpenRGB devices were not detected."
+        echo "Evidence: $root"
+        return 0
+    fi
+
+    finish_rgb_run "$root" "$applied" "$([[ -r "$root/logs/openrgb-list-devices.after.txt" ]] && printf 0 || printf 1)"
+    [[ "$applied" == "1" ]] && write_brightness_state apply "${RGB_BRIGHTNESS:-100}"
+    resume_sdk_after_direct "$root/logs/openrgb-sdk-service.log"
+
+    echo "RGB applied for $RGB_THEME."
+    echo "Evidence: $root"
+}
+
+lock_theme_rgb() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run lock "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local lock_pct color current_pct transition_done transition_rc
+    lock_pct="$(clamp_pct "$RGB_LOCK_BRIGHTNESS")"
+    current_pct="$(read_brightness_state)"
+    current_pct="$(clamp_pct "${current_pct:-${RGB_BRIGHTNESS:-100}}")"
+
+    transition_done="0"
+    if run_sdk_transition "$root" lock "$current_pct" "$lock_pct" "${RGB_LOCK_TRANSITION_SECONDS:-1.5}"; then
+        transition_done="1"
+    else
+        transition_rc="$?"
+        if [[ "$transition_rc" == "2" ]]; then
+            finish_rgb_run "$root" "0" "0"
+            echo "RGB transition already running for $RGB_THEME."
+            echo "Evidence: $root"
+            return 0
+        fi
+    fi
+
+    if [[ "$transition_done" != "1" ]]; then
+        color="$(scale_hex_color "$RGB_COLOR" "$lock_pct")"
+        printf 'lock_fallback=single_step pct=%s color=%s reason=sdk_unavailable\n' "$lock_pct" "$color" >>"$root/logs/openrgb-lock.log"
+        apply_color_to_targets "$root" static "$color" "" "100" "$root/logs/openrgb-lock.log" "0"
+    fi
+
+    write_brightness_state lock "$lock_pct"
+    finish_rgb_run "$root" "1" "0"
+    echo "RGB lock state applied for $RGB_THEME."
+    echo "Evidence: $root"
+}
+
+unlock_theme_rgb() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run unlock "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local hold="$RGB_UNLOCK_HOLD_SECONDS"
+    local lock_pct target_pct color current_pct transition_done transition_rc
+    lock_pct="$(clamp_pct "$RGB_LOCK_BRIGHTNESS")"
+    target_pct="$(clamp_pct "${RGB_BRIGHTNESS:-100}")"
+    current_pct="$(read_brightness_state)"
+    current_pct="$(clamp_pct "${current_pct:-$lock_pct}")"
+
+    transition_done="0"
+    if run_sdk_transition "$root" unlock "$current_pct" "$target_pct" "${RGB_UNLOCK_TRANSITION_SECONDS:-1.8}"; then
+        transition_done="1"
+    else
+        transition_rc="$?"
+        if [[ "$transition_rc" == "2" ]]; then
+            finish_rgb_run "$root" "0" "0"
+            echo "RGB transition already running for $RGB_THEME."
+            echo "Evidence: $root"
+            return 0
+        fi
+    fi
+
+    if [[ "$transition_done" != "1" ]]; then
+        color="$(scale_hex_color "$RGB_COLOR" "$target_pct")"
+        printf 'unlock_fallback=single_step pct=%s color=%s reason=sdk_unavailable\n' "$target_pct" "$color" >>"$root/logs/openrgb-unlock.log"
+        apply_color_to_targets "$root" static "$color" "" "100" "$root/logs/openrgb-unlock.log" "0"
+    fi
+
+    [[ "$hold" =~ ^[0-9]+([.][0-9]+)?$ ]] || hold="0"
+    if [[ "$hold" != "0" && "$hold" != "0.0" ]]; then
+        sleep "$hold"
+    fi
+    if [[ "$RGB_MODE" == "static" && "${RGB_BRIGHTNESS:-100}" == "100" ]]; then
+        echo "final_static_already_applied=1" >>"$root/logs/openrgb-unlock.log"
+    else
+        apply_color_to_targets "$root" "$RGB_MODE" "$RGB_COLOR" "$RGB_SPEED" "$RGB_BRIGHTNESS" "$root/logs/openrgb-unlock.log" "0"
+    fi
+
+    finish_rgb_run "$root" "1" "0"
+    write_brightness_state unlock "$target_pct"
+    echo "RGB unlock state applied for $RGB_THEME."
+    echo "Evidence: $root"
+}
+
+apply_type_targets() {
+    local list_file="$1"
+    local targets_config="$2"
+    local default_mode="$3"
+    local color="$4"
+    local speed="$5"
+    local brightness="$6"
+    local log_file="$7"
+    local label="${8:-type_target}"
+    local target selector mode device type name modes active_mode found matched="0"
+    local -a targets openrgb_args
+
+    [[ -n "$targets_config" ]] || return 1
+    [[ -r "$list_file" ]] || return 1
+    IFS=',' read -ra targets <<<"$targets_config"
+    for target in "${targets[@]}"; do
+        target="$(trim "$target")"
+        [[ -n "$target" ]] || continue
+        selector="$(trim "${target%%:*}")"
+        mode="$(trim "${target#*:}")"
+        [[ "$mode" == "$target" ]] && mode="$default_mode"
+        [[ -n "$selector" ]] || continue
+        found="0"
+        while IFS=$'\t' read -r device type name modes active_mode; do
+            device_matches_selector "$selector" "$type" "$name" || continue
+            is_uint "$device" || continue
+            found="1"
+            matched="1"
+            openrgb_base_args openrgb_args
+            openrgb_args+=(--device "$device" --mode "$mode")
+            [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+            [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+            [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+            printf '%s device=%s type=%s name=%s selector=%s mode=%s color=%s\n' "$label" "$device" "$type" "$name" "$selector" "$mode" "$color" >>"$log_file"
+            run_openrgb "$log_file" "${openrgb_args[@]}" || true
+        done < <(theme_devices "$list_file")
+        if [[ "$found" != "1" ]]; then
+            printf '%s_missing selector=%s mode=%s\n' "$label" "$selector" "$mode" >>"$log_file"
+        fi
+    done
+
+    [[ "$matched" == "1" ]]
+}
+
+apply_clear_device_targets() {
+    local default_mode="$1"
+    local color="$2"
+    local speed="$3"
+    local brightness="$4"
+    local log_file="$5"
+    local target device mode
+    local -a targets openrgb_args
+
+    [[ -n "${RGB_CLEAR_DEVICE_TARGETS:-}" ]] || return 1
+    IFS=',' read -ra targets <<<"$RGB_CLEAR_DEVICE_TARGETS"
+    for target in "${targets[@]}"; do
+        target="$(trim "$target")"
+        [[ -n "$target" ]] || continue
+        device="$(trim "${target%%:*}")"
+        mode="$(trim "${target#*:}")"
+        [[ "$mode" == "$target" ]] && mode="$default_mode"
+        is_uint "$device" || continue
+        openrgb_base_args openrgb_args
+        openrgb_args+=(--device "$device" --mode "$mode")
+        [[ -n "$color" ]] && openrgb_args+=(--color "$color")
+        [[ -n "$speed" ]] && openrgb_args+=(--speed "$speed")
+        [[ -n "$brightness" ]] && openrgb_args+=(--brightness "$brightness")
+        printf 'clear_device device=%s mode=%s color=%s\n' "$device" "$mode" "$color" >>"$log_file"
+        run_openrgb "$log_file" "${openrgb_args[@]}" || true
+    done
+}
+
+apply_clear_type_targets() {
+    local list_file="$1"
+    local default_mode="$2"
+    local color="$3"
+    local speed="$4"
+    local brightness="$5"
+    local log_file="$6"
+    apply_type_targets "$list_file" "${RGB_CLEAR_TYPE_TARGETS:-}" "$default_mode" "$color" "$speed" "$brightness" "$log_file" "clear_type"
+}
+
+strict_clear_enabled() {
+    [[ "${MAD_RGB_STRICT_CLEAR:-0}" == "1" ]]
+}
+
+verify_required_clear_targets() {
+    local list_file="$1"
+    local log_file="$2"
+    local selector device type name modes active_mode found ok="1"
+    local -a required
+
+    strict_clear_enabled || return 0
+    [[ -n "${RGB_CLEAR_REQUIRED_TYPES:-}" ]] || return 0
+
+    if [[ ! -r "$list_file" ]] || ! has_openrgb_devices "$list_file"; then
+        echo "strict_clear_failed reason=no_openrgb_devices" >>"$log_file"
+        return 1
+    fi
+
+    IFS=',' read -ra required <<<"$RGB_CLEAR_REQUIRED_TYPES"
+    for selector in "${required[@]}"; do
+        selector="$(trim "$selector")"
+        [[ -n "$selector" ]] || continue
+        found="0"
+        while IFS=$'\t' read -r device type name modes active_mode; do
+            device_matches_selector "$selector" "$type" "$name" || continue
+            found="1"
+            if [[ "$(upper_value "$active_mode")" == "STATIC" ]]; then
+                printf 'strict_clear_failed selector=%s device=%s type=%s name=%s active_mode=%s\n' \
+                    "$selector" "$device" "$type" "$name" "$active_mode" >>"$log_file"
+                ok="0"
+            else
+                printf 'strict_clear_ok selector=%s device=%s type=%s name=%s active_mode=%s\n' \
+                    "$selector" "$device" "$type" "$name" "$active_mode" >>"$log_file"
+            fi
+        done < <(theme_devices "$list_file")
+        if [[ "$found" != "1" ]]; then
+            printf 'strict_clear_failed selector=%s reason=missing_required_type\n' "$selector" >>"$log_file"
+            ok="0"
+        fi
+    done
+
+    [[ "$ok" == "1" ]]
+}
+
+clear_theme_rgb_direct() {
+    local root="$1"
+    local mode="${RGB_CLEAR_MODE:-rainbow}"
+    local color="${RGB_CLEAR_COLOR:-}"
+    local speed="${RGB_CLEAR_SPEED:-$RGB_SPEED}"
+    local brightness="${RGB_CLEAR_BRIGHTNESS:-100}"
+    local targets="${RGB_CLEAR_TARGETS:-}"
+    local zone_targets="${RGB_CLEAR_ZONE_TARGETS:-}"
+    local zone_mode="${RGB_CLEAR_ZONE_MODE:-$mode}"
+    local zone_color="${RGB_CLEAR_ZONE_COLOR:-$color}"
+    local type_targets="${RGB_CLEAR_TYPE_TARGETS:-}"
+    local saved_targets="$RGB_TARGETS"
+
+    detect_rgb_devices "$root" before "$root/logs/openrgb-clear.log" || return 2
+    if [[ -z "${RGB_CLEAR_DEVICE_TARGETS:-}" ]] && apply_combined_direct_targets \
+        "$root/logs/openrgb-list-devices.before.txt" \
+        "${RGB_CLEAR_TYPE_TARGETS:-}" \
+        "$zone_targets" \
+        "$mode" \
+        "$color" \
+        "$speed" \
+        "$brightness" \
+        "$zone_mode" \
+        "$zone_color" \
+        "$speed" \
+        "$brightness" \
+        "$root/logs/openrgb-clear-combined.log" \
+        "clear_combined"; then
+        return 0
+    fi
+    echo "clear_combined status=fallback_to_separate" >>"$root/logs/openrgb-clear.log"
+    if [[ -n "$zone_targets" ]]; then
+        apply_explicit_zone_targets_once \
+            "$zone_targets" \
+            "$zone_mode" \
+            "$zone_color" \
+            "$speed" \
+            "$brightness" \
+            "$root/logs/openrgb-clear-zones.log" \
+            "clear_zone" || true
+    fi
+    apply_clear_type_targets "$root/logs/openrgb-list-devices.before.txt" "$mode" "$color" "$speed" "$brightness" "$root/logs/openrgb-clear.log" || true
+    apply_clear_device_targets "$mode" "$color" "$speed" "$brightness" "$root/logs/openrgb-clear.log" || true
+    if [[ -z "$zone_targets" ]]; then
+        [[ -n "$targets" ]] && RGB_TARGETS="$targets"
+        if [[ -n "$targets" ]] || [[ -z "${RGB_CLEAR_DEVICE_TARGETS:-}" && -z "$type_targets" ]]; then
+            apply_color_to_targets "$root" "$mode" "$color" "$speed" "$brightness" "$root/logs/openrgb-clear.log"
+        fi
+    fi
+    RGB_TARGETS="$saved_targets"
+}
+
+clear_theme_rgb() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run clear "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local applied="0"
+
+    pause_sdk_for_direct "$root/logs/openrgb-sdk-service.log"
+    if clear_theme_rgb_direct "$root"; then
+        applied="1"
+    else
+        resume_sdk_after_direct "$root/logs/openrgb-sdk-service.log"
+        finish_rgb_run "$root" "0" "0"
+        if strict_clear_enabled; then
+            echo "strict_clear=failed" >>"$root/summary.env"
+            echo "RGB strict clear failed for $RGB_THEME: OpenRGB devices were not detected."
+            echo "Evidence: $root"
+            return 1
+        fi
+        echo "RGB clear skipped for $RGB_THEME: OpenRGB devices were not detected."
+        echo "Evidence: $root"
+        return 0
+    fi
+
+    write_brightness_state clear "${RGB_CLEAR_BRIGHTNESS:-100}"
+    finish_rgb_run "$root" "$applied" "$([[ -r "$root/logs/openrgb-list-devices.after.txt" ]] && printf 0 || printf 1)"
+    resume_sdk_after_direct "$root/logs/openrgb-sdk-service.log"
+    if strict_clear_enabled; then
+        if verify_required_clear_targets "$root/logs/openrgb-list-devices.after.txt" "$root/logs/openrgb-clear.log"; then
+            echo "strict_clear=passed" >>"$root/summary.env"
+        else
+            echo "strict_clear=failed" >>"$root/summary.env"
+            echo "RGB strict clear failed for $RGB_THEME."
+            echo "Evidence: $root"
+            return 1
+        fi
+    fi
+    echo "RGB clear state applied for $RGB_THEME."
+    echo "Evidence: $root"
+}
+
+configure_local_theme_rgb() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run configure-local "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local log_file="$root/logs/openrgb-configure-local.log"
+    local list_file="$root/logs/openrgb-list-devices.before.txt"
+    local local_file config_dir zone_targets="" device zone zone_name target
+
+    detect_rgb_devices "$root" before "$log_file" || {
+        finish_rgb_run "$root" "0" "0"
+        echo "RGB local mapping skipped for $RGB_THEME: OpenRGB devices were not detected."
+        echo "Evidence: $root"
+        return 0
+    }
+
+    while IFS=$'\t' read -r device zone zone_name; do
+        is_auto_resizable_zone "$zone_name" || continue
+        is_selected_auto_zone "$zone_name" || continue
+        is_uint "$RGB_AUTO_MAX_ZONES" && ((zone < RGB_AUTO_MAX_ZONES)) || continue
+        target="$device:$zone"
+        if is_uint "${RGB_AUTO_ZONE_SIZE:-}"; then
+            target="$target:$RGB_AUTO_ZONE_SIZE"
+        fi
+        zone_targets="${zone_targets:+$zone_targets,}$target"
+        printf 'local_zone_target device=%s zone=%s name=%s target=%s\n' "$device" "$zone" "$zone_name" "$target" >>"$log_file"
+    done < <(theme_zone_targets "$list_file")
+
+    config_dir="$(theme_config_dir "$RGB_THEME")"
+    local_file="$(theme_rgb_local_file "$RGB_THEME")"
+    mkdir -p "$config_dir"
+    {
+        printf '# Generated by mad-rgb-theme configure-local on %s\n' "$(date --iso-8601=seconds)"
+        printf '# Machine-specific OpenRGB mapping. Do not commit this file.\n'
+        printf 'RGB_APPLY_ZONE_TARGETS=%s\n' "$zone_targets"
+        printf 'RGB_CLEAR_ZONE_TARGETS=%s\n' "$zone_targets"
+        printf 'RGB_CLEAR_ZONE_MODE=%s\n' "${RGB_CLEAR_ZONE_MODE:-Direct}"
+        printf 'RGB_CLEAR_ZONE_COLOR=%s\n' "${RGB_CLEAR_ZONE_COLOR:-}"
+    } >"$local_file"
+    cp -a "$list_file" "$root/logs/openrgb-list-devices.mapped.txt"
+    finish_rgb_run "$root" "1" "0"
+    echo "RGB local mapping written for $RGB_THEME: $local_file"
+    echo "Evidence: $root"
+}
+
+gpu_mode_test_theme() {
+    local theme="${1:-}"
+    local prepared="0"
+    prepare_rgb_run gpu-mode-test "$theme" "0" || prepared="$?"
+    [[ "$prepared" == "1" ]] && return 0
+
+    local root="$RGB_RUN_ROOT"
+    local log_file="$root/logs/openrgb-gpu-mode-test.log"
+    local list_file="$root/logs/openrgb-list-devices.before.txt"
+    local hold mode device type name modes active_mode found="0"
+    local -a test_modes openrgb_args
+
+    detect_rgb_devices "$root" before "$log_file" || {
+        finish_rgb_run "$root" "0" "0"
+        echo "RGB GPU mode test skipped for $RGB_THEME: OpenRGB devices were not detected."
+        echo "Evidence: $root"
+        return 0
+    }
+
+    hold="${RGB_GPU_TEST_HOLD_SECONDS:-6}"
+    is_number "$hold" || hold="6"
+    IFS=',' read -ra test_modes <<<"${RGB_GPU_TEST_MODES:-Rainbow,Chase,Chase Fade,Random Flicker,Spectrum Cycle}"
+
+    while IFS=$'\t' read -r device type name modes active_mode; do
+        device_matches_selector "GPU" "$type" "$name" || continue
+        is_uint "$device" || continue
+        found="1"
+        for mode in "${test_modes[@]}"; do
+            mode="$(trim "$mode")"
+            [[ -n "$mode" ]] || continue
+            openrgb_base_args openrgb_args
+            openrgb_args+=(--device "$device" --mode "$mode")
+            [[ -n "${RGB_CLEAR_SPEED:-}" ]] && openrgb_args+=(--speed "$RGB_CLEAR_SPEED")
+            [[ -n "${RGB_CLEAR_BRIGHTNESS:-}" ]] && openrgb_args+=(--brightness "$RGB_CLEAR_BRIGHTNESS")
+            printf 'gpu_mode_test device=%s name=%s mode=%s hold_seconds=%s\n' "$device" "$name" "$mode" "$hold" >>"$log_file"
+            run_openrgb "$log_file" "${openrgb_args[@]}" || true
+            sleep "$hold"
+        done
+    done < <(theme_devices "$list_file")
+
+    if [[ "$found" != "1" ]]; then
+        echo "gpu_mode_test_failed reason=no_gpu_device" >>"$log_file"
+        finish_rgb_run "$root" "0" "1"
+        echo "RGB GPU mode test skipped for $RGB_THEME: no GPU device was detected."
+        echo "Evidence: $root"
+        return 0
+    fi
+
+    finish_rgb_run "$root" "1" "1"
+    echo "RGB GPU mode test finished for $RGB_THEME."
+    echo "Evidence: $root"
+}
+
+case "${1:-}" in
+    apply)
+        shift
+        apply_theme_rgb "$*"
+        ;;
+    lock)
+        shift
+        lock_theme_rgb "$*"
+        ;;
+    unlock)
+        shift
+        unlock_theme_rgb "$*"
+        ;;
+    clear)
+        shift
+        clear_theme_rgb "$*"
+        ;;
+    configure-local)
+        shift
+        configure_local_theme_rgb "$*"
+        ;;
+    gpu-mode-test)
+        shift
+        gpu_mode_test_theme "$*"
+        ;;
+    current)
+        current_theme
+        ;;
+    -h|--help|help|'')
+        usage
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

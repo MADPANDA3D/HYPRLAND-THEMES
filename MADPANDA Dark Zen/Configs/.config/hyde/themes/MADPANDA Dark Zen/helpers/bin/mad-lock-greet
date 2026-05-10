@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+display_name="${MAD_LOCK_DISPLAY_NAME:-${MAD_THEME_DISPLAY_NAME:-}}"
+if [[ -z "$display_name" ]]; then
+    display_name="${USER:-$(id -un 2>/dev/null || printf user)}"
+    display_name="$(
+        awk '{
+            for (i = 1; i <= NF; i++) {
+                $i = toupper(substr($i, 1, 1)) substr($i, 2)
+            }
+            print
+        }' <<<"${display_name//[-_.]/ }"
+    )"
+fi
+
+hour="$(date +%H)"
+if ((10#$hour < 12)); then
+    period="Morning"
+elif ((10#$hour < 18)); then
+    period="Afternoon"
+else
+    period="Evening"
+fi
+
+printf 'Good %s, %s\n' "$period" "$display_name"

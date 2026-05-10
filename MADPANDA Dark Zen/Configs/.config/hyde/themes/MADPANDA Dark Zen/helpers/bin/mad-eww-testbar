@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_name="MADPANDA Dark Zen"
+theme_slug="MADPANDA-Dark-Zen"
+window_name="mad-testbar"
+runtime_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/eww-testbar/$theme_slug"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-eww-testbar start
+  mad-eww-testbar stop
+  mad-eww-testbar restart
+  mad-eww-testbar status
+
+Runs the Dark Zen Zenities-inspired Eww test bar from a MADPANDA-owned sandbox.
+This does not edit Waybar, Hyprland autostart, or ~/.config/eww.
+EOF
+}
+
+repo_root() {
+    if [[ -n "${MAD_PROJECT_LINUX_REPO:-}" ]]; then
+        printf '%s\n' "$MAD_PROJECT_LINUX_REPO"
+        return
+    fi
+
+    local candidate="$PWD"
+    while [[ -n "$candidate" && "$candidate" != "/" ]]; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" && -d "$candidate/scripts" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+        candidate="$(dirname "$candidate")"
+    done
+
+    for candidate in \
+        "$HOME/the-lab/project-linux/project-linux" \
+        "$HOME/project-linux/project-linux"; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+}
+
+source_dir() {
+    if [[ -n "${MAD_EWW_TESTBAR_SOURCE:-}" ]]; then
+        printf '%s\n' "$MAD_EWW_TESTBAR_SOURCE"
+        return
+    fi
+
+    local root
+    root="$(repo_root || true)"
+    if [[ -n "$root" && -d "$root/themes/$theme_slug/eww-testbar" ]]; then
+        printf '%s/themes/%s/eww-testbar\n' "$root" "$theme_slug"
+        return
+    fi
+
+    local live="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/$theme_name/eww-testbar"
+    [[ -d "$live" ]] && printf '%s\n' "$live"
+}
+
+eww_cmd() {
+    eww --force-wayland -c "$runtime_dir" "$@"
+}
+
+require_deps() {
+    local missing=()
+    command -v eww >/dev/null 2>&1 || missing+=(eww)
+    command -v socat >/dev/null 2>&1 || missing+=(socat)
+    command -v jq >/dev/null 2>&1 || missing+=(jq)
+    if ((${#missing[@]})); then
+        printf 'Missing required command(s): %s\n' "${missing[*]}" >&2
+        return 1
+    fi
+}
+
+sync_config() {
+    local src
+    src="$(source_dir || true)"
+    if [[ -z "$src" || ! -d "$src" ]]; then
+        printf 'Eww test-bar source not found. Run from the repo or install the Dark Zen theme first.\n' >&2
+        return 1
+    fi
+
+    mkdir -p "$runtime_dir"
+    rsync -a --delete "$src/" "$runtime_dir/"
+    chmod +x "$runtime_dir"/scripts/*.sh
+}
+
+daemon_running() {
+    eww_cmd ping >/dev/null 2>&1
+}
+
+start_bar() {
+    require_deps
+    sync_config
+
+    if ! daemon_running; then
+        eww_cmd daemon >/dev/null 2>&1
+        sleep 0.2
+    fi
+
+    eww_cmd close "$window_name" >/dev/null 2>&1 || true
+    eww_cmd open "$window_name"
+    printf 'Started %s from %s\n' "$window_name" "$runtime_dir"
+}
+
+stop_bar() {
+    if daemon_running; then
+        eww_cmd close "$window_name" >/dev/null 2>&1 || true
+        eww_cmd kill >/dev/null 2>&1 || true
+        printf 'Stopped %s\n' "$window_name"
+    else
+        printf 'Eww test-bar daemon is not running.\n'
+    fi
+}
+
+status_bar() {
+    printf 'Runtime config: %s\n' "$runtime_dir"
+    printf 'Source config: %s\n' "$(source_dir || true)"
+    if command -v eww >/dev/null 2>&1; then
+        eww --version
+    else
+        printf 'eww: missing\n'
+    fi
+    if command -v socat >/dev/null 2>&1; then
+        socat -V 2>&1 | head -n 1
+    else
+        printf 'socat: missing\n'
+    fi
+    if daemon_running; then
+        printf 'Daemon: running\n'
+        eww_cmd active-windows || true
+    else
+        printf 'Daemon: stopped\n'
+    fi
+}
+
+case "${1:-}" in
+    start)
+        start_bar
+        ;;
+    stop)
+        stop_bar
+        ;;
+    restart)
+        stop_bar
+        start_bar
+        ;;
+    status)
+        status_bar
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

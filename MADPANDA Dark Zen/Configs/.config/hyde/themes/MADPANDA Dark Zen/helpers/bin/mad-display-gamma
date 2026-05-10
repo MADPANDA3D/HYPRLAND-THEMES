@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+min_gamma=50
+max_gamma=200
+default_gamma=100
+default_step=5
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda"
+state_file="$state_dir/display-gamma"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-display-gamma get
+  mad-display-gamma set 50..200
+  mad-display-gamma inc [step]
+  mad-display-gamma dec [step]
+  mad-display-gamma reset
+  mad-display-gamma json
+  mad-display-gamma popup
+
+Controls perceived display brightness through Hyprland hyprsunset gamma only.
+This helper intentionally never calls ddcutil, brightnessctl, sysfs LEDs, or
+OpenRGB, so it cannot touch the Dell monitor firmware or PC LEDs.
+EOF
+}
+
+die() {
+    echo "mad-display-gamma: $*" >&2
+    exit 1
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+clamp_gamma() {
+    local value="${1:-}"
+    [[ "$value" =~ ^[0-9]+$ ]] || die "gamma must be a number from $min_gamma to $max_gamma"
+    ((value < min_gamma)) && value="$min_gamma"
+    ((value > max_gamma)) && value="$max_gamma"
+    printf '%s\n' "$value"
+}
+
+ensure_state_dir() {
+    mkdir -p "$state_dir"
+}
+
+read_state() {
+    local value=""
+    if [[ -r "$state_file" ]]; then
+        value="$(<"$state_file")"
+    fi
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        clamp_gamma "$value"
+    else
+        printf '%s\n' "$default_gamma"
+    fi
+}
+
+write_state() {
+    ensure_state_dir
+    printf '%s\n' "$1" >"$state_file"
+}
+
+read_live_gamma() {
+    local value=""
+    value="$(hyprctl hyprsunset gamma 2>/dev/null | awk 'NF {print $1; exit}')" || true
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        clamp_gamma "$value"
+    else
+        read_state
+    fi
+}
+
+ensure_hyprsunset() {
+    if hyprctl hyprsunset gamma >/dev/null 2>&1; then
+        return 0
+    fi
+
+    systemctl --user start hyde-Hyprland-blue-light-filter.service >/dev/null 2>&1 || true
+    sleep 0.2
+    hyprctl hyprsunset gamma >/dev/null 2>&1 || die "hyprsunset is not reachable"
+}
+
+apply_gamma() {
+    local value
+    value="$(clamp_gamma "$1")"
+    ensure_hyprsunset
+    hyprctl --quiet hyprsunset gamma "$value"
+    write_state "$value"
+    printf '%s\n' "$value"
+}
+
+json_status() {
+    local value class
+    value="$(read_live_gamma)"
+    class="normal"
+    ((value >= 120)) && class="high"
+    ((value <= 80)) && class="low"
+    printf '{"text":"Gamma %s%%","tooltip":"Display gamma brightness: %s%%","percentage":%s,"class":"%s"}\n' \
+        "$value" "$value" "$value" "$class"
+}
+
+popup_slider() {
+    need_cmd yad
+    local value
+    value="$(read_live_gamma)"
+
+    yad \
+        --scale \
+        --title="Display brightness" \
+        --text="Display gamma brightness" \
+        --min-value="$min_gamma" \
+        --max-value="$max_gamma" \
+        --step=1 \
+        --value="$value" \
+        --print-partial \
+        --width=360 \
+        --height=90 \
+        --button="Close:0" |
+        while IFS= read -r next; do
+            [[ "$next" =~ ^[0-9]+$ ]] || continue
+            apply_gamma "$next" >/dev/null || true
+        done
+}
+
+main() {
+    need_cmd hyprctl
+
+    local action="${1:-}"
+    [[ -n "$action" ]] || { usage; exit 2; }
+
+    case "$action" in
+        get)
+            read_live_gamma
+            ;;
+        set)
+            [[ $# -ge 2 ]] || die "set requires a value"
+            apply_gamma "$2"
+            ;;
+        inc)
+            local current step next
+            current="$(read_live_gamma)"
+            step="${2:-$default_step}"
+            [[ "$step" =~ ^[0-9]+$ ]] || die "step must be numeric"
+            next=$((current + step))
+            apply_gamma "$next"
+            ;;
+        dec)
+            local current step next
+            current="$(read_live_gamma)"
+            step="${2:-$default_step}"
+            [[ "$step" =~ ^[0-9]+$ ]] || die "step must be numeric"
+            next=$((current - step))
+            apply_gamma "$next"
+            ;;
+        reset)
+            apply_gamma "$default_gamma"
+            ;;
+        json)
+            json_status
+            ;;
+        popup)
+            popup_slider
+            ;;
+        -h|--help|help)
+            usage
+            ;;
+        *)
+            usage
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"

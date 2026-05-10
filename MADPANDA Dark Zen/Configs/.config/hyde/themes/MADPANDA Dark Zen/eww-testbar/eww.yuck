@@ -1,0 +1,295 @@
+(defvar show_power false)
+(defvar show_clock false)
+(defvar show_network false)
+(defvar show_volume false)
+(defvar show_mic false)
+(defvar show_environment false)
+(defvar show_bluetooth false)
+(defvar show_caffeine false)
+(defvar show_stats false)
+(defvar show_tools false)
+(defvar ewwcmd "eww --force-wayland -c $HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen")
+(defvar scripts "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts")
+
+(deflisten workspaces :initial "[]" "sh $HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-workspaces.sh")
+(deflisten current_workspace :initial "1" "sh $HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-active-workspace.sh")
+(deflisten active_window :initial "Desktop" "sh $HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-active-window.sh")
+
+(defpoll clock_time :interval "5s" "date '+%H:%M'")
+(defpoll clock_date :interval "30s" "date '+%a %b %d'")
+(defpoll clock_full :interval "30s" "date '+%A, %B %d, %Y'")
+(defpoll current_network :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-network.sh")
+(defpoll network_icon :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-network-strength.sh")
+(defpoll current_volume :interval "2s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-volume.sh")
+(defpoll volume_icon :interval "2s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-volume-icon.sh")
+(defpoll current_mic :interval "2s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-mic-volume.sh")
+(defpoll mic_icon :interval "2s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-mic-icon.sh")
+(defpoll current_memory :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-memory.sh")
+(defpoll current_cpu :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-cpu.sh")
+(defpoll current_cpu_temp :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-temperature.sh")
+(defpoll current_gpu :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-gpu.sh")
+(defpoll current_weather :interval "15m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-weather.sh")
+(defpoll current_weather_compact :interval "15m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-weather-compact.sh")
+(defpoll current_updates :interval "60m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-updates.sh")
+(defpoll current_gamma :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-gamma.sh")
+(defpoll current_bluetooth :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-bluetooth.sh")
+(defpoll bluetooth_icon :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-bluetooth-icon.sh")
+(defpoll current_caffeine :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-caffeine.sh")
+(defpoll caffeine_icon :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-caffeine-icon.sh")
+
+(defwidget launcher []
+  (eventbox :onhover "${ewwcmd} update show_power=true"
+            :onhoverlost "${ewwcmd} update show_power=false"
+            :cursor "pointer"
+    (box :orientation "horizontal" :space-evenly false
+      (button :class "launcher"
+              :tooltip "Applications"
+              :onclick "${scripts}/launcher.sh"
+              "󰣇")
+      (revealer :transition "slideright"
+                :duration "240ms"
+                :reveal show_power
+        (box :class "slide-menu" :orientation "horizontal" :spacing 8
+          (button :tooltip "Lock"
+                  :onclick "${scripts}/lock.sh"
+                  "")
+          (button :tooltip "Shutdown disabled in sandbox"
+                  :onclick "${scripts}/disabled-action.sh shutdown"
+                  "")
+          (button :tooltip "Reboot disabled in sandbox"
+                  :onclick "${scripts}/disabled-action.sh reboot"
+                  "")
+          (button :tooltip "Suspend disabled in sandbox"
+                  :onclick "${scripts}/disabled-action.sh suspend"
+                  "")
+          (button :tooltip "Exit Hyprland disabled in sandbox"
+                  :onclick "${scripts}/disabled-action.sh exit"
+                  ""))))))
+
+(defwidget workspaces-widget []
+  (box :class "workspace-strip"
+       :orientation "horizontal"
+       :space-evenly false
+       :spacing 2
+    (for workspace in workspaces
+      (button :class "workspace ${current_workspace == workspace.id ? "current" : ""}"
+              :tooltip "Workspace ${workspace.id}"
+              :onclick "hyprctl dispatch workspace ${workspace.id}"
+              "${workspace.id}"))))
+
+(defwidget window-widget []
+  (box :class "window-pill"
+       :orientation "horizontal"
+       :space-evenly false
+    (label :class "window-title"
+           :text active_window
+           :limit-width 30
+           :truncate true)))
+
+(defwidget network-widget []
+  (eventbox :onhover "${ewwcmd} update show_network=true show_volume=false show_mic=false show_environment=false show_bluetooth=false show_caffeine=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_network=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip current_network
+              :onclick "${scripts}/tools-action.sh network"
+              "${network_icon}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_network
+        (label :class "net-label"
+               :text current_network
+               :limit-width 18
+               :truncate true)))))
+
+(defwidget volume-widget []
+  (eventbox :onhover "${ewwcmd} update show_volume=true show_network=false show_mic=false show_environment=false show_bluetooth=false show_caffeine=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_volume=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip "Volume ${current_volume}%"
+              :onclick "${scripts}/tools-action.sh audio"
+              "${volume_icon}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_volume
+        (box :orientation "horizontal" :spacing 6
+          (scale :class "volume-scale"
+                 :value current_volume
+                 :orientation "horizontal"
+                 :max 100
+                 :min 0
+                 :onchange "pactl set-sink-volume @DEFAULT_SINK@ {}%")
+          (label :class "stat-label" :text "${current_volume}%"))))))
+
+(defwidget mic-widget []
+  (eventbox :onhover "${ewwcmd} update show_mic=true show_network=false show_volume=false show_environment=false show_bluetooth=false show_caffeine=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_mic=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip "Mic ${current_mic}%"
+              :onclick "${scripts}/tools-action.sh mic"
+              "${mic_icon}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_mic
+        (label :class "stat-label" :text "MIC ${current_mic}%")))))
+
+(defwidget environment-widget []
+  (eventbox :onhover "${ewwcmd} update show_environment=true show_network=false show_volume=false show_mic=false show_bluetooth=false show_caffeine=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_environment=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip current_weather
+              :onclick "${scripts}/tools-action.sh weather"
+              "${current_weather_compact}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_environment
+        (label :class "net-label"
+               :text current_weather
+               :limit-width 20
+               :truncate true)))))
+
+(defwidget bluetooth-widget []
+  (eventbox :onhover "${ewwcmd} update show_bluetooth=true show_network=false show_volume=false show_mic=false show_environment=false show_caffeine=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_bluetooth=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip current_bluetooth
+              :onclick "${scripts}/tools-action.sh bluetooth"
+              "${bluetooth_icon}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_bluetooth
+        (label :class "stat-label"
+               :text current_bluetooth
+               :limit-width 18
+               :truncate true)))))
+
+(defwidget caffeine-widget []
+  (eventbox :onhover "${ewwcmd} update show_caffeine=true show_network=false show_volume=false show_mic=false show_environment=false show_bluetooth=false show_stats=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_caffeine=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip current_caffeine
+              :onclick "mad-caffeine toggle"
+              "${caffeine_icon}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_caffeine
+        (label :class "stat-label"
+               :text current_caffeine
+               :limit-width 18
+               :truncate true)))))
+
+(defwidget stats-widget []
+  (eventbox :onhover "${ewwcmd} update show_stats=true show_network=false show_volume=false show_mic=false show_environment=false show_bluetooth=false show_caffeine=false show_tools=false"
+            :onhoverlost "${ewwcmd} update show_stats=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip "CPU ${current_cpu}% / ${current_cpu_temp} / Memory ${current_memory}% / ${current_gpu}"
+              "󰍛")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_stats
+        (box :class "metrics-menu" :orientation "horizontal" :spacing 8
+          (label :class "metric-label" :text "CPU ${current_cpu}% ${current_cpu_temp}")
+          (label :class "metric-label" :text "MEM ${current_memory}%")
+          (label :class "metric-label" :text current_gpu))))))
+
+(defwidget tools-widget []
+  (eventbox :onhover "${ewwcmd} update show_tools=true show_network=false show_volume=false show_mic=false show_environment=false show_bluetooth=false show_caffeine=false show_stats=false"
+            :onhoverlost "${ewwcmd} update show_tools=false"
+            :cursor "pointer"
+    (box :class "pill" :orientation "horizontal" :space-evenly false
+      (button :class "icon-button"
+              :tooltip "Dark Zen tools"
+              "󰒓")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_tools
+        (box :class "slide-menu tool-menu" :orientation "horizontal" :spacing 8
+          (button :tooltip current_gamma
+                  :onclick "${scripts}/tools-action.sh gamma"
+                  "󰃠")
+          (button :tooltip "Eye care"
+                  :onclick "${scripts}/tools-action.sh eye-care"
+                  "󰖨")
+          (button :tooltip "Animations"
+                  :onclick "${scripts}/tools-action.sh animations"
+                  "󰜎")
+          (button :tooltip "Workflows"
+                  :onclick "${scripts}/tools-action.sh workflows"
+                  "󱓞")
+          (button :tooltip current_updates
+                  :onclick "${scripts}/tools-action.sh updates"
+                  "󰮯")
+          (button :tooltip current_weather
+                  :onclick "${scripts}/tools-action.sh weather"
+                  "")
+          (button :tooltip "Clipboard history"
+                  :onclick "${scripts}/tools-action.sh clipboard"
+                  "")
+          (button :tooltip "Keybinds"
+                  :onclick "${scripts}/tools-action.sh keybinds"
+                  "")
+          (button :tooltip "Theme selector"
+                  :onclick "${scripts}/tools-action.sh theme"
+                  "")
+          (button :tooltip "Wallpaper selector"
+                  :onclick "${scripts}/tools-action.sh wallpaper"
+                  "󰸉")
+          (button :tooltip "About Dark Zen"
+                  :onclick "${scripts}/tools-action.sh about"
+                  "󰋼"))))))
+
+(defwidget clock-widget []
+  (eventbox :onhover "${ewwcmd} update show_clock=true"
+            :onhoverlost "${ewwcmd} update show_clock=false"
+            :cursor "default"
+    (box :class "pill clock-pill"
+         :orientation "horizontal"
+         :space-evenly false
+      (label :class "clock" :text "${clock_time}  ${clock_date}")
+      (revealer :transition "slideleft"
+                :duration "220ms"
+                :reveal show_clock
+        (label :class "clock-detail" :text clock_full)))))
+
+(defwidget mad-testbar-content []
+  (centerbox :class "mad-testbar"
+             :orientation "horizontal"
+    (box :class "left" :orientation "horizontal" :spacing 3 :space-evenly false :halign "start" :hexpand false
+      (launcher)
+      (workspaces-widget)
+      (window-widget))
+    (box :class "center" :orientation "horizontal" :space-evenly false :halign "center" :hexpand true
+      (clock-widget))
+    (box :class "right" :orientation "horizontal" :spacing 4 :space-evenly false :halign "end" :hexpand false
+      (environment-widget)
+      (stats-widget)
+      (network-widget)
+      (volume-widget)
+      (mic-widget)
+      (bluetooth-widget)
+      (caffeine-widget)
+      (tools-widget))))
+
+(defwindow mad-testbar
+  :geometry (geometry :x "0px"
+                      :y "3px"
+                      :width "96%"
+                      :height "44px"
+                      :anchor "top center")
+  :stacking "fg"
+  :exclusive "true"
+  :focusable "false"
+  (mad-testbar-content))

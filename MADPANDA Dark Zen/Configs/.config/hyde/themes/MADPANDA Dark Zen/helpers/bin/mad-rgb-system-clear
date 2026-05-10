@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target_user="${1:-${MAD_RGB_USER:-}}"
+if [[ -z "$target_user" ]]; then
+    target_user="${SUDO_USER:-}"
+fi
+if [[ -z "$target_user" || "$target_user" == "root" ]]; then
+    target_user="$(logname 2>/dev/null || true)"
+fi
+[[ -n "$target_user" ]] || exit 0
+
+home_dir="$(getent passwd "$target_user" | cut -d: -f6)"
+[[ -n "$home_dir" && -d "$home_dir" ]] || exit 0
+
+export HOME="$home_dir"
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$home_dir/.config}"
+export XDG_STATE_HOME="${XDG_STATE_HOME:-$home_dir/.local/state}"
+user_id="$(id -u "$target_user" 2>/dev/null || true)"
+if [[ -n "$user_id" && -d "/run/user/$user_id" ]]; then
+    export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$user_id}"
+fi
+export QT_QPA_PLATFORM="${QT_QPA_PLATFORM:-offscreen}"
+export MAD_RGB_STRICT_CLEAR="${MAD_RGB_STRICT_CLEAR:-1}"
+export MAD_RGB_NO_SDK_RESTART=1
+
+state_file="$XDG_STATE_HOME/hyde/staterc"
+theme_root="$XDG_CONFIG_HOME/hyde/themes"
+log_dir="$XDG_STATE_HOME/madpanda/theme-runtime"
+mkdir -p "$log_dir"
+log_file="$log_dir/rgb-system-clear.log"
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+feature_enabled() {
+    local theme="$1"
+    local config="$XDG_CONFIG_HOME/madpanda/themes/$(theme_slug "$theme")/features.env"
+    local value="1"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${MAD_THEME_FEATURE_RGB:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+theme="$(current_theme)"
+{
+    printf '%s user=%s theme=%s\n' "$(date --iso-8601=seconds)" "$target_user" "${theme:-}"
+} >>"$log_file"
+
+[[ -n "$theme" ]] || exit 0
+[[ -r "$theme_root/$theme/rgb.theme" ]] || exit 0
+feature_enabled "$theme" || exit 0
+
+rgb_bin="$home_dir/.local/bin/mad-rgb-theme"
+if [[ ! -x "$rgb_bin" ]]; then
+    rgb_bin="$(command -v mad-rgb-theme 2>/dev/null || true)"
+fi
+[[ -n "$rgb_bin" && -x "$rgb_bin" ]] || exit 0
+
+if [[ -n "${XDG_RUNTIME_DIR:-}" ]] && command -v runuser >/dev/null 2>&1; then
+    runuser -u "$target_user" -- systemctl --user stop mad-openrgb-sdk.service >>"$log_file" 2>&1 || true
+fi
+"$rgb_bin" clear "$theme" >>"$log_file" 2>&1 || exit 1

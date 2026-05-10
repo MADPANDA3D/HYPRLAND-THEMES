@@ -1,0 +1,16 @@
+[Unit]
+Description=MADPANDA RGB clear before shutdown for %i
+Documentation=https://github.com/CalcProgrammer1/OpenRGB/blob/master/Documentation/SMBusAccess.md
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=QT_QPA_PLATFORM=offscreen
+Environment=MAD_RGB_STRICT_CLEAR=1
+ExecStart=/usr/bin/true
+ExecStop=/usr/local/bin/mad-rgb-system-clear %i
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

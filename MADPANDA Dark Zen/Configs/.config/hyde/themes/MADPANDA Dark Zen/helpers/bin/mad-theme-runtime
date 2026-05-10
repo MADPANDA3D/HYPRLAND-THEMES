@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+runtime_root="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/theme-runtime"
+log_root_base="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/runs"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-theme-runtime reconcile [--startup]
+  mad-theme-runtime activate "Theme Name" [--no-rgb]
+  mad-theme-runtime deactivate "Theme Name"
+  mad-theme-runtime current
+
+Keeps MADPANDA theme adapters aligned with HyDE's active theme. It is safe to
+run after normal HyDE/Waybar theme switches.
+EOF
+}
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+feature_enabled() {
+    local theme="$1"
+    local feature="$2"
+    local config var value
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$(theme_slug "$theme")/features.env"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="1"
+    case "$feature" in
+        sddm|grub) value="0" ;;
+    esac
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+theme_has_manifest() {
+    local theme="$1"
+    [[ -r "$theme_root/$theme/theme.json" ]]
+}
+
+make_run_root() {
+    local label="$1"
+    local ts safe
+    safe="$(printf '%s' "$label" | tr ' /' '__' | tr -cd '[:alnum:]_.-')"
+    ts="$(date +%Y%m%dT%H%M%S%z)"
+    printf '%s/mad-theme-runtime-%s-%s\n' "$log_root_base" "$ts" "$safe"
+}
+
+last_theme_file() {
+    printf '%s/last-theme\n' "$runtime_root"
+}
+
+read_last_theme() {
+    local file
+    file="$(last_theme_file)"
+    [[ -r "$file" ]] && head -n 1 "$file"
+}
+
+write_last_theme() {
+    local theme="$1"
+    mkdir -p "$runtime_root"
+    printf '%s\n' "$theme" >"$(last_theme_file)"
+}
+
+deactivate_theme() {
+    local theme="$1"
+    local root
+    [[ -n "$theme" ]] || return 0
+    root="$(make_run_root "deactivate-$theme")"
+    mkdir -p "$root/logs"
+    if command -v mad-theme-pack >/dev/null 2>&1; then
+        mad-theme-pack deactivate "$theme" >"$root/logs/mad-theme-pack-deactivate.log" 2>&1 || true
+    else
+        if feature_enabled "$theme" rgb && command -v mad-rgb-theme >/dev/null 2>&1; then
+            MAD_RGB_THEME_LOG_ROOT="$root/rgb-clear" mad-rgb-theme clear "$theme" >"$root/logs/mad-rgb-clear.log" 2>&1 || true
+        fi
+    fi
+    printf 'theme=%s\nrun_root=%s\n' "$theme" "$root"
+}
+
+activate_theme() {
+    local theme="$1"
+    local no_rgb="${2:-0}"
+    local root
+    [[ -n "$theme" ]] || return 0
+    theme_has_manifest "$theme" || return 0
+    root="$(make_run_root "activate-$theme")"
+    mkdir -p "$root/logs"
+    if command -v mad-theme-pack >/dev/null 2>&1; then
+        MAD_THEME_PACK_SKIP_RGB_APPLY=1 MAD_THEME_PACK_RUN_ROOT="$root/theme-pack" mad-theme-pack apply "$theme" >"$root/logs/mad-theme-pack-apply.log" 2>&1 || true
+    fi
+    if [[ "$no_rgb" != "1" ]] && feature_enabled "$theme" rgb && command -v mad-rgb-theme >/dev/null 2>&1; then
+        MAD_RGB_THEME_LOG_ROOT="$root/rgb-apply" mad-rgb-theme apply "$theme" >"$root/logs/mad-rgb-apply.log" 2>&1 || true
+    fi
+    write_last_theme "$theme"
+    printf 'theme=%s\nrun_root=%s\n' "$theme" "$root"
+}
+
+reconcile_theme() {
+    local startup="0"
+    while (($#)); do
+        case "$1" in
+            --startup) startup="1" ;;
+            *) usage >&2; exit 2 ;;
+        esac
+        shift
+    done
+
+    local active last
+    active="$(current_theme)"
+    last="$(read_last_theme || true)"
+
+    if [[ -n "$last" && "$last" != "$active" ]]; then
+        deactivate_theme "$last" >/dev/null || true
+    elif [[ -z "$last" && -n "$active" && ! -r "$theme_root/$active/theme.json" ]]; then
+        if command -v mad-theme-pack >/dev/null 2>&1; then
+            mad-theme-pack clear-overrides >/dev/null 2>&1 || true
+        fi
+    fi
+
+    if [[ -n "$active" && -r "$theme_root/$active/theme.json" ]]; then
+        activate_theme "$active" "$startup" >/dev/null || true
+    else
+        if command -v mad-theme-pack >/dev/null 2>&1; then
+            mad-theme-pack clear-overrides >/dev/null 2>&1 || true
+        fi
+        [[ -n "$active" ]] && write_last_theme "$active"
+    fi
+
+    printf '%s\n' "${active:-}"
+}
+
+case "${1:-}" in
+    reconcile)
+        shift || true
+        reconcile_theme "$@"
+        ;;
+    activate)
+        shift || true
+        no_rgb="0"
+        if [[ "${1:-}" == "--no-rgb" ]]; then
+            no_rgb="1"
+            shift
+        fi
+        [[ $# -gt 0 ]] || { usage >&2; exit 2; }
+        activate_theme "$*" "$no_rgb"
+        ;;
+    deactivate)
+        shift || true
+        [[ $# -gt 0 ]] || { usage >&2; exit 2; }
+        deactivate_theme "$*"
+        ;;
+    current)
+        current_theme
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

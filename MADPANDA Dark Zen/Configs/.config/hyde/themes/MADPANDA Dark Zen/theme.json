@@ -1,0 +1,309 @@
+{
+  "schema": "mad-theme-pack/v1",
+  "name": "MADPANDA Dark Zen",
+  "slug": "MADPANDA-Dark-Zen",
+  "mode": "local-first",
+  "publisher": {
+    "name": "MADPANDA3D",
+    "contact": "leolara@madpanda3d.com"
+  },
+  "base": {
+    "desktop": "HyDE",
+    "themeRoot": "$XDG_CONFIG_HOME/hyde/themes/MADPANDA Dark Zen"
+  },
+  "channels": {
+    "devSource": "themes/MADPANDA-Dark-Zen",
+    "prodInstall": "$XDG_CONFIG_HOME/hyde/themes/MADPANDA Dark Zen",
+    "hydePackage": "dist/hyde-themes/MADPANDA-Dark-Zen",
+    "runtimeReadsFrom": "prodInstall"
+  },
+  "distribution": {
+    "mode": "fan-open-source",
+    "repositoryUrl": "https://github.com/MADPANDA3D/HYPRLAND-THEMES",
+    "repositoryThemePath": "MADPANDA Dark Zen",
+    "hydeConfigPath": "Configs/.config/hyde/themes/MADPANDA Dark Zen",
+    "installCommand": "~/.config/hyde/themes/MADPANDA Dark Zen/install.sh",
+    "promoteCommand": "mad-theme-pack promote \"MADPANDA Dark Zen\"",
+    "notes": "Repo is dev/staging. The installed HyDE theme is prod/stable. Publish as a non-monetized fan theme."
+  },
+  "colors": {
+    "background": "#040000",
+    "surface": "#1D1111",
+    "surfaceAlt": "#2E0404",
+    "accent": "#EA0000",
+    "accentSoft": "#8F5757",
+    "text": "#FFE6E6",
+    "muted": "#E69A9A"
+  },
+  "wallpapers": {
+    "path": "wallpapers",
+    "active": "18.png",
+    "staticFirst": true,
+    "defaultResizeMode": "crop",
+    "applyHelper": "mad-wallpaper-theme",
+    "featureFlags": {
+      "hires": "MAD_THEME_FEATURE_HIRES_WALLPAPERS",
+      "vertical": "MAD_THEME_FEATURE_VERTICAL_WALLPAPERS",
+      "animated": "MAD_THEME_FEATURE_ANIMATED_WALLPAPERS"
+    },
+    "tiers": {
+      "standard": {
+        "path": "wallpapers",
+        "orientation": "landscape",
+        "resolution": "2560x1440",
+        "count": 22,
+        "enabledByDefault": true
+      },
+      "hiresLandscape": {
+        "path": "wallpapers/hires/landscape",
+        "orientation": "landscape",
+        "resolution": "3840x2160",
+        "count": 22,
+        "enabledByDefault": false
+      },
+      "hiresPortrait": {
+        "path": "wallpapers/hires/portrait",
+        "orientation": "portrait",
+        "resolution": "2160x3840",
+        "count": 22,
+        "enabledByDefault": false,
+        "selection": "hyprctl monitors -j transform 1/3/5/7 or height greater than width"
+      },
+      "animatedLandscape": {
+        "path": "wallpapers/animated/landscape",
+        "orientation": "landscape",
+        "pilot": "18.gif",
+        "resolution": "1280x720",
+        "durationSeconds": 6,
+        "fps": 20,
+        "enabledByDefault": false
+      },
+      "animatedPortrait": {
+        "path": "wallpapers/animated/portrait",
+        "orientation": "portrait",
+        "pilot": "18.gif",
+        "resolution": "720x1280",
+        "durationSeconds": 6,
+        "fps": 20,
+        "enabledByDefault": false,
+        "selection": "vertical outputs when animated and vertical wallpaper features are enabled"
+      },
+      "animatedHiresLandscape": {
+        "path": "wallpapers/animated/hires/landscape",
+        "orientation": "landscape",
+        "pilot": "18.gif",
+        "resolution": "2560x1440",
+        "durationSeconds": 6,
+        "fps": 24,
+        "enabledByDefault": false
+      },
+      "animatedHiresPortrait": {
+        "path": "wallpapers/animated/hires/portrait",
+        "orientation": "portrait",
+        "pilot": "18.gif",
+        "resolution": "1440x2560",
+        "durationSeconds": 6,
+        "fps": 24,
+        "enabledByDefault": false,
+        "selection": "vertical outputs when animated, high-res, and vertical wallpaper features are enabled"
+      }
+    },
+    "fallbackPolicy": [
+      "Use high-res animated landscape GIF when animated and high-res wallpapers are both enabled and the asset is present.",
+      "Use high-res animated portrait GIF on vertical outputs when animated, high-res, and vertical wallpapers are enabled and the asset is present.",
+      "Use standard animated portrait GIF on vertical outputs when animated and vertical wallpapers are enabled and the asset is present.",
+      "Use standard animated landscape GIF when animated wallpapers are enabled and present for the active wallpaper.",
+      "Use portrait assets on vertical outputs only when explicitly enabled and present.",
+      "Use 4K landscape assets on horizontal outputs when high-res wallpapers are enabled and present.",
+      "Fall back to the standard 2560x1440 landscape wallpaper with crop resize."
+    ],
+    "animation": {
+      "enabled": false,
+      "pilot": "wallpapers/animated/landscape/18.gif",
+      "desktopOnly": false,
+      "notes": "AWWW and the Dark Zen SDDM wrapper can use animated GIF wallpapers when the animated wallpaper feature is enabled. Current regular pilots are 1280x720 landscape and 720x1280 portrait; current high-res pilots are 2560x1440 landscape and 1440x2560 portrait. All use the VEO 3.1 Fast start/end-frame seamless loop converted with FFmpeg. Portrait animated pilots are desktop/lock only; SDDM keeps the landscape animated background. Plymouth animation is follow-up work.",
+      "hiresPilot": "wallpapers/animated/hires/landscape/18.gif",
+      "portraitPilot": "wallpapers/animated/portrait/18.gif",
+      "hiresPortraitPilot": "wallpapers/animated/hires/portrait/18.gif"
+    }
+  },
+  "terminal": {
+    "stickersPath": "terminal/stickers",
+    "fastfetchConfig": "terminal/fastfetch.jsonc",
+    "splash": "MADPANDA Dark Zen | Feudal Empire",
+    "targetStickerCount": 14,
+    "fallback": "If the active theme has no theme-owned transparent sticker PNGs, let HyDE's normal random terminal art handle startup."
+  },
+  "identity": {
+    "lockAvatar": "identity/lock-avatar.png",
+    "notificationIcon": "identity/notification-icon.png",
+    "hydeLogoReplacement": "identity/notification-icon.png"
+  },
+  "notifications": {
+    "daemon": "dunst",
+    "dunstStyle": "notifications/dunst-dark-zen.conf"
+  },
+  "sounds": {
+    "path": "sounds",
+    "lock": "sounds/lightsaber-off-lock-sound.mp3",
+    "unlock": "sounds/lightsaber-on-unlock-sound.mp3",
+    "boot": "sounds/the-force-is-with-you-boot-sound.mp3",
+    "tileClose": "sounds/tie-fighter-fire-tile-close-sound.mp3",
+    "outputPreference": "SOULION R100",
+    "debounceSeconds": 2,
+    "player": "auto"
+  },
+  "effects": {
+    "tileClose": {
+      "enabled": true,
+      "mode": "synthetic-explode",
+      "durationMs": 420,
+      "shards": 18,
+      "soundDelayMs": 0,
+      "accent": "#EA0000",
+      "blast": "#FF5A1F"
+    }
+  },
+  "sessionStart": {
+    "expectedMonitors": [
+      "DP-5",
+      "DP-6",
+      "DP-7"
+    ],
+    "monitorWaitSeconds": 8,
+    "desktopWaitSeconds": 6,
+    "audioWaitSeconds": 10,
+    "rgbWaitSeconds": 20,
+    "postRgbSoundDelaySeconds": 0.5
+  },
+  "sddm": {
+    "themeName": "MADPANDA-Dark-Zen",
+    "sourceTheme": "Corners",
+    "themeDir": "sddm/MADPANDA-Dark-Zen",
+    "themeConf": "sddm/MADPANDA-Dark-Zen/theme.conf",
+    "background": "sddm/dark-zen-login.png",
+    "activateAutomatically": true,
+    "restoreOnDeactivate": true,
+    "offerInstallIfMissing": true
+  },
+  "hyprlock": {
+    "mode": "hyde-wallpaper-cache",
+    "backgroundCache": "/home/leo/.cache/hyde/wall.set.png",
+    "staticBackground": "hyprlock/dark-zen-lock.png",
+    "layout": "hyprlock/MADPANDA-Dark-Zen.conf",
+    "previewLayout": "hyprlock/MADPANDA-Dark-Zen-widgets-preview.conf",
+    "transparentLayout": "hyprlock/MADPANDA-Dark-Zen-transparent-widgets.conf",
+    "sessionMode": "staged",
+    "safeSessionMode": "opt-in via MAD_LOCK_SESSION_MODE=safe",
+    "quotes": "hyprlock/star_wars_quotes_curated.json",
+    "greetHelper": "mad-lock-greet",
+    "quoteHelper": "mad-lock-quote"
+  },
+  "grub": {
+    "mode": "static-only",
+    "theme": "grub",
+    "activateAutomatically": false
+  },
+  "plymouth": {
+    "mode": "not-installed",
+    "activateAutomatically": false
+  },
+  "rgb": {
+    "themeFile": "rgb.theme",
+    "localConfig": "$XDG_CONFIG_HOME/madpanda/themes/MADPANDA-Dark-Zen/rgb.local.env",
+    "hardwareMap": "generated-local",
+    "lockBrightness": 20,
+    "unlockBrightness": 100,
+    "applyDriver": "openrgb-direct-cli",
+    "clearDriver": "openrgb-direct-cli",
+    "lockDriver": "openrgb-sdk",
+    "sdkService": "mad-openrgb-sdk.service",
+    "sdkClient": "mad-openrgb-sdkctl",
+    "sdkServer": "127.0.0.1:6742"
+  },
+  "workspaces": {
+    "count": 6,
+    "layout": {
+      "DP-5": [
+        1,
+        4
+      ],
+      "DP-6": [
+        2,
+        5
+      ],
+      "DP-7": [
+        3,
+        6
+      ]
+    }
+  },
+  "bar": {
+    "provider": "eww",
+    "defaultProvider": "eww",
+    "providerOptions": [
+      "eww",
+      "waybar"
+    ],
+    "providerState": "$XDG_CONFIG_HOME/madpanda/themes/MADPANDA-Dark-Zen/bar.env",
+    "helper": "mad-eww-bar",
+    "providerHelper": "mad-bar-provider",
+    "compatibilityHelper": "mad-eww-testbar",
+    "caffeineHelper": "mad-caffeine",
+    "source": "eww-testbar",
+    "runtimeConfig": "$XDG_CONFIG_HOME/madpanda/eww-testbar/MADPANDA-Dark-Zen",
+    "window": "mad-testbar",
+    "monitorPolicy": "one-window-per-active-hyprland-monitor",
+    "exclusive": true,
+    "replaces": "waybar",
+    "takeover": "staged",
+    "rollbackCommand": "mad-eww-bar rollback-waybar",
+    "notes": "Dark Zen defaults to Eww as the visible bar, but the provider can be switched to Waybar without deleting Waybar configs."
+  },
+  "experiments": {
+    "ewwTestBar": {
+      "enabledByDefault": true,
+      "autostart": false,
+      "helper": "mad-eww-testbar",
+      "primaryHelper": "mad-eww-bar",
+      "source": "eww-testbar",
+      "runtimeConfig": "$XDG_CONFIG_HOME/madpanda/eww-testbar/MADPANDA-Dark-Zen",
+      "inspiration": "Zenities Eww hover revealers",
+      "safeMode": "App launcher and lock are live; shutdown, reboot, suspend, and Hyprland exit are disabled in the sandbox.",
+      "placement": "top overlay"
+    }
+  },
+  "dependencies": {
+    "required": [
+      "jq",
+      "hyprctl",
+      "rsync"
+    ],
+    "optional": [
+      "hyde-shell",
+      "hydectl",
+      "OpenRGB",
+      "mpg123 or another supported audio player",
+      "dunst",
+      "notify-send",
+      "grim",
+      "magick or convert",
+      "python3",
+      "hyprlock",
+      "hypridle",
+      "awww",
+      "ffmpeg",
+      "sddm-greeter",
+      "eww",
+      "socat",
+      "systemd-inhibit"
+    ],
+    "policy": "Missing optional dependencies disable only their related adapter. They must not fail the whole theme install."
+  },
+  "safety": {
+    "noAutomaticGrubRegeneration": true,
+    "noAutomaticDiskFormatting": true,
+    "noAutomaticSddmActivation": false,
+    "staticFirst": true
+  }
+}

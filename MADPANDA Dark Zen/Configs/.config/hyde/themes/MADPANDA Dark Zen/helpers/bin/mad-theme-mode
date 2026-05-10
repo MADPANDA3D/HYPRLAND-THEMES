@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-1}"
+
+case "$mode" in
+    1) theme="Catppuccin Mocha" ;;
+    2) theme="Tokyo Night" ;;
+    3) theme="Rosé Pine" ;;
+    4) theme="Synth Wave" ;;
+    *)
+        notify-send -a "MADPANDA" "Unknown theme mode: $mode"
+        exit 1
+        ;;
+esac
+
+if command -v mad-theme-safe >/dev/null 2>&1; then
+    mad-theme-safe set "$theme"
+else
+    hyde-shell theme.switch -q -s "$theme"
+    if command -v mad-theme-runtime >/dev/null 2>&1; then
+        mad-theme-runtime reconcile >/dev/null 2>&1 || true
+    fi
+fi
+notify-send -a "MADPANDA" "Theme mode $mode" "$theme"

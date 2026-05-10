@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+runtime_bin="${MAD_THEME_RUNTIME_BIN:-$(command -v mad-theme-runtime 2>/dev/null || printf '%s/mad-theme-runtime' "${XDG_BIN_HOME:-$HOME/.local/bin}")}"
+log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/theme-runtime"
+log_file="$log_dir/watcher.log"
+poll_seconds="${MAD_THEME_WATCHER_POLL_SECONDS:-1}"
+
+log() {
+    mkdir -p "$log_dir"
+    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*" >>"$log_file"
+}
+
+state_stamp() {
+    if [[ -e "$state_file" ]]; then
+        stat -c '%Y:%s' "$state_file" 2>/dev/null || printf 'missing\n'
+    else
+        printf 'missing\n'
+    fi
+}
+
+log "watcher=start state_file=$state_file"
+"$runtime_bin" reconcile --startup >>"$log_file" 2>&1 || true
+last_stamp="$(state_stamp)"
+
+while true; do
+    sleep "$poll_seconds"
+    current_stamp="$(state_stamp)"
+    if [[ "$current_stamp" != "$last_stamp" ]]; then
+        log "theme_state=changed old=$last_stamp new=$current_stamp"
+        "$runtime_bin" reconcile >>"$log_file" 2>&1 || true
+        last_stamp="$current_stamp"
+    fi
+done

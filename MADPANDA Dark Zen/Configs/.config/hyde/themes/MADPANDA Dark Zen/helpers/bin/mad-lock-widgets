@@ -1,0 +1,462 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}/madpanda/lock-widgets"
+media_cache="$cache_root/media.tsv"
+weather_cache="$cache_root/weather.tsv"
+media_art="$cache_root/media-art.png"
+downloaded_art="$cache_root/media-art.source"
+weather_location="${MAD_LOCK_WEATHER_LOCATION:-${WEATHER_LOCATION:-Cleveland, Ohio}}"
+weather_ttl="${MAD_LOCK_WEATHER_TTL:-900}"
+
+usage() {
+    cat <<'EOF'
+Usage: mad-lock-widgets COMMAND
+
+Commands:
+  prepare            Refresh cached media/weather data for Hyprlock.
+  media-art          Print cached media artwork path.
+  media-source       Print cached player source.
+  media-title-1      Print cached media title line 1.
+  media-title-2      Print cached media title line 2.
+  media-title-3      Print cached media title line 3.
+  media-sub          Print cached media subtitle.
+  media-status       Print cached media status.
+  media-status-icon  Print cached media status as a play/pause icon.
+  weather-icon       Print cached weather icon.
+  weather-main       Print cached weather temperature.
+  weather-sub        Print cached weather condition.
+  weather-place      Print cached weather location.
+EOF
+}
+
+mkdir -p "$cache_root"
+
+sanitize_text() {
+    tr '\t\r\n' '   ' <<<"${1:-}" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+write_media_cache() {
+    local source="$1" status="$2" title_1="$3" title_2="$4" title_3="$5" sub="$6"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$(sanitize_text "$source")" \
+        "$(sanitize_text "$status")" \
+        "$(sanitize_text "$title_1")" \
+        "$(sanitize_text "$title_2")" \
+        "$(sanitize_text "$title_3")" \
+        "$(sanitize_text "$sub")" >"$media_cache"
+}
+
+write_weather_cache() {
+    local icon="$1" main="$2" sub="$3" place="$4"
+    printf '%s\t%s\t%s\t%s\n' \
+        "$(sanitize_text "$icon")" \
+        "$(sanitize_text "$main")" \
+        "$(sanitize_text "$sub")" \
+        "$(sanitize_text "$place")" >"$weather_cache"
+}
+
+read_field() {
+    local file="$1" field="$2" fallback="$3" value
+    value="$(awk -F '\t' -v field="$field" 'NR == 1 { print $field; exit }' "$file" 2>/dev/null || true)"
+    if [[ -n "$value" ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' "$fallback"
+    fi
+}
+
+ellipsize_text() {
+    local text="$1" max="${2:-34}"
+    text="$(sanitize_text "$text")"
+    awk -v text="$text" -v max="$max" '
+        BEGIN {
+            if (length(text) <= max) {
+                print text
+            } else if (max > 3) {
+                print substr(text, 1, max - 3) "..."
+            } else {
+                print substr(text, 1, max)
+            }
+        }
+    '
+}
+
+wrap_three_lines() {
+    local text="$1" max="${2:-30}"
+    text="$(sanitize_text "$text")"
+    awk -v text="$text" -v max="$max" '
+        function push(line) {
+            if (line_count < 3) {
+                lines[++line_count] = line
+            } else {
+                overflow = 1
+            }
+        }
+        function append_word(word) {
+            while (length(word) > max) {
+                if (current != "") {
+                    push(current)
+                    current = ""
+                }
+                push(substr(word, 1, max - 1) "-")
+                word = substr(word, max)
+                if (line_count >= 3) {
+                    overflow = 1
+                    return
+                }
+            }
+            if (current == "") {
+                current = word
+            } else if (length(current " " word) <= max) {
+                current = current " " word
+            } else {
+                push(current)
+                current = word
+            }
+        }
+        BEGIN {
+            if (text == "") {
+                print "Nothing playing"
+                print ""
+                print ""
+                exit
+            }
+            n = split(text, words, /[[:space:]]+/)
+            for (i = 1; i <= n; i++) {
+                append_word(words[i])
+            }
+            if (current != "") {
+                push(current)
+            }
+            if (overflow && length(lines[3]) > 3) {
+                lines[3] = substr(lines[3], 1, max - 3) "..."
+            }
+            for (i = 1; i <= 3; i++) {
+                print lines[i]
+            }
+        }
+    '
+}
+
+uri_decode() {
+    local uri="${1//+/ }"
+    printf '%b' "${uri//%/\\x}" 2>/dev/null || printf '%s' "$1"
+}
+
+ensure_default_media_art() {
+    local fallback
+    fallback="${XDG_CACHE_HOME:-$HOME/.cache}/hyde/landing/mpris.png"
+    if command -v magick >/dev/null 2>&1; then
+        magick -size 384x384 "gradient:#160b0c-#651418" \
+            -fill 'rgba(255,255,255,0.08)' -draw 'circle 292,86 334,86' \
+            -fill 'rgba(255,255,255,0.10)' -draw 'circle 88,310 148,310' \
+            "$media_art" >/dev/null 2>&1 || true
+    elif [[ -r "$fallback" ]]; then
+        cp -f "$fallback" "$media_art" 2>/dev/null || true
+    fi
+}
+
+find_source_icon() {
+    local source="${1,,}" name base path
+    local -a names bases suffixes
+
+    case "$source" in
+        chromium*|chrome*|google-chrome*)
+            names=(chromium google-chrome google-chrome-stable chrome browser)
+            ;;
+        firefox*)
+            names=(firefox firefox-nightly browser)
+            ;;
+        spotify*|ncspot*)
+            names=(spotify ncspot audio-x-generic)
+            ;;
+        *)
+            names=("$source" audio-x-generic)
+            ;;
+    esac
+
+    bases=(
+        "${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+        "$HOME/.local/share/icons"
+        "/usr/share/icons/hicolor"
+        "/usr/share/icons/Papirus-Dark"
+        "/usr/share/icons/Papirus"
+        "/usr/share/pixmaps"
+    )
+    suffixes=(
+        "512x512/apps"
+        "256x256/apps"
+        "128x128/apps"
+        "64x64/apps"
+        "48x48/apps"
+        "scalable/apps"
+        "."
+    )
+
+    for base in "${bases[@]}"; do
+        [[ -d "$base" ]] || continue
+        for name in "${names[@]}"; do
+            for path in "$base/${name}.png" "$base/${name}.svg" "$base/${name}.xpm"; do
+                [[ -r "$path" ]] && {
+                    printf '%s\n' "$path"
+                    return 0
+                }
+            done
+            for path in "${suffixes[@]}"; do
+                for candidate in "$base/$path/${name}.png" "$base/$path/${name}.svg" "$base/$path/${name}.xpm"; do
+                    [[ -r "$candidate" ]] && {
+                        printf '%s\n' "$candidate"
+                        return 0
+                    }
+                done
+            done
+        done
+    done
+    return 1
+}
+
+source_label() {
+    local source="${1:-media}"
+    case "${source,,}" in
+        chromium*|chrome*|google-chrome*) printf 'CHROMIUM\n' ;;
+        firefox*) printf 'FIREFOX\n' ;;
+        spotify*) printf 'SPOTIFY\n' ;;
+        ncspot*) printf 'NCSPOT\n' ;;
+        *) printf '%s\n' "$(tr '[:lower:]' '[:upper:]' <<<"$source" | cut -c 1-12)" ;;
+    esac
+}
+
+make_source_fallback_art() {
+    local source="$1" label icon tmp_icon tmp_art
+    [[ -n "$source" ]] || source="media"
+    label="$(source_label "$source")"
+    tmp_icon="$cache_root/media-art.icon.png"
+    tmp_art="$cache_root/media-art.next.png"
+    icon="$(find_source_icon "$source" 2>/dev/null || true)"
+
+    if ! command -v magick >/dev/null 2>&1; then
+        ensure_default_media_art
+        return 0
+    fi
+
+    magick -size 384x384 "gradient:#160b0c-#651418" \
+        -fill 'rgba(255,255,255,0.08)' -draw 'circle 292,86 334,86' \
+        -fill 'rgba(255,90,31,0.10)' -draw 'circle 88,310 148,310' \
+        -fill 'rgba(234,0,0,0.30)' -draw 'roundrectangle 92,92 292,292 34,34' \
+        "$tmp_art" >/dev/null 2>&1 || return 1
+
+    if [[ -n "$icon" ]]; then
+        magick "$icon" -background none -auto-orient -resize '138x138>' "$tmp_icon" >/dev/null 2>&1 &&
+            magick "$tmp_art" "$tmp_icon" -gravity center -compose over -composite "$tmp_art" >/dev/null 2>&1 || true
+    fi
+
+    magick "$tmp_art" \
+        -fill 'rgba(255,255,255,0.88)' \
+        -font DejaVu-Sans-Bold \
+        -gravity south \
+        -pointsize 24 \
+        -annotate +0+42 "$label" \
+        "$tmp_art" >/dev/null 2>&1 || return 1
+    mv -f "$tmp_art" "$media_art"
+    rm -f "$tmp_icon"
+}
+
+make_art_from_source() {
+    local source="$1" tmp="$cache_root/media-art.next.png"
+    [[ -n "$source" && -r "$source" ]] || return 1
+    if command -v magick >/dev/null 2>&1; then
+        magick "$source" -auto-orient -resize '384x384^' -gravity center -extent 384x384 "$tmp" >/dev/null 2>&1 || return 1
+        mv -f "$tmp" "$media_art"
+        return 0
+    fi
+    return 1
+}
+
+playerctl_quick() {
+    timeout 1.5s playerctl "$@" 2>/dev/null || true
+}
+
+prepare_media() {
+    local players player selected status title artist source art_url art_source
+    local -a title_lines
+
+    if ! command -v playerctl >/dev/null 2>&1; then
+        write_media_cache "Media" "Standby" "No player found" "" "" "Install/playerctl unavailable"
+        ensure_default_media_art
+        return 0
+    fi
+
+    players="$(playerctl_quick -l)"
+    if [[ -z "$players" ]]; then
+        write_media_cache "Media" "Standby" "Nothing playing" "" "" "Open music to fill this card"
+        ensure_default_media_art
+        return 0
+    fi
+
+    selected=""
+    while IFS= read -r player; do
+        [[ -n "$player" ]] || continue
+        status="$(playerctl_quick -p "$player" status)"
+        if [[ "$status" == "Playing" ]]; then
+            selected="$player"
+            break
+        fi
+        [[ -n "$selected" ]] || selected="$player"
+    done <<<"$players"
+
+    [[ -n "$selected" ]] || selected="$(sed -n '1p' <<<"$players")"
+    status="$(playerctl_quick -p "$selected" status)"
+    title="$(playerctl_quick -p "$selected" metadata xesam:title)"
+    artist="$(playerctl_quick -p "$selected" metadata xesam:artist)"
+    art_url="$(playerctl_quick -p "$selected" metadata mpris:artUrl)"
+    source="${selected%%.*}"
+    [[ -n "$status" ]] || status="Paused"
+    [[ -n "$title" ]] || title="Nothing playing"
+    [[ -n "$artist" ]] || artist="Ready when you are"
+
+    mapfile -t title_lines < <(wrap_three_lines "$title" 30)
+    write_media_cache "$source" "$status" \
+        "${title_lines[0]:-Nothing playing}" \
+        "${title_lines[1]:-}" \
+        "${title_lines[2]:-}" \
+        "$(ellipsize_text "$artist" 34)"
+
+    art_source=""
+    case "$art_url" in
+        file://*)
+            art_source="$(uri_decode "${art_url#file://}")"
+            ;;
+        http://*|https://*)
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL --max-time 4 "$art_url" -o "$downloaded_art" >/dev/null 2>&1 || true
+                [[ -s "$downloaded_art" ]] && art_source="$downloaded_art"
+            fi
+            ;;
+        /*)
+            art_source="$art_url"
+            ;;
+    esac
+
+    if ! make_art_from_source "$art_source"; then
+        make_source_fallback_art "$source" || ensure_default_media_art
+    fi
+}
+
+weather_icon_for() {
+    local condition="${1,,}"
+    case "$condition" in
+        *snow*|*sleet*|*ice*) printf '❄\n' ;;
+        *storm*|*thunder*) printf 'ϟ\n' ;;
+        *rain*|*drizzle*|*shower*) printf '☂\n' ;;
+        *clear*|*sun*) printf '☀\n' ;;
+        *cloud*|*overcast*|*fog*|*mist*) printf '☁\n' ;;
+        *) printf '•\n' ;;
+    esac
+}
+
+weather_cache_is_fresh() {
+    local now mtime age
+    [[ -r "$weather_cache" ]] || return 1
+    [[ "$weather_ttl" =~ ^[0-9]+$ ]] || weather_ttl=900
+    now="$(date +%s)"
+    mtime="$(stat -c %Y "$weather_cache" 2>/dev/null || printf '0')"
+    age=$((now - mtime))
+    (( age < weather_ttl ))
+}
+
+url_escape_basic() {
+    local value="$1"
+    value="${value// /%20}"
+    value="${value//,/%2C}"
+    printf '%s\n' "$value"
+}
+
+prepare_weather() {
+    local encoded raw place temp condition icon
+    if weather_cache_is_fresh; then
+        return 0
+    fi
+
+    if command -v curl >/dev/null 2>&1; then
+        encoded="$(url_escape_basic "$weather_location")"
+        raw="$(curl -fsSL --max-time 3 "https://wttr.in/${encoded}?u&format=%l|%t|%C" 2>/dev/null || true)"
+        IFS='|' read -r place temp condition <<<"$raw"
+        temp="${temp#+}"
+        if [[ -n "${temp:-}" && -n "${condition:-}" ]]; then
+            icon="$(weather_icon_for "$condition")"
+            write_weather_cache "$icon" "$temp" "$condition" "${place:-$weather_location}"
+            return 0
+        fi
+    fi
+
+    write_weather_cache "•" "--" "Weather unavailable" "$weather_location"
+}
+
+prepare_all() {
+    prepare_media || true
+    prepare_weather || true
+    [[ -r "$media_cache" ]] || write_media_cache "Media" "Standby" "Nothing playing" "" "" "Open music to fill this card"
+    [[ -r "$weather_cache" ]] || write_weather_cache "•" "--" "Weather unavailable" "$weather_location"
+    [[ -r "$media_art" ]] || ensure_default_media_art
+}
+
+case "${1:-prepare}" in
+    prepare)
+        prepare_all
+        ;;
+    media-art)
+        if [[ -r "$media_art" ]]; then
+            printf '%s\n' "$media_art"
+        else
+            printf '%s\n' "${XDG_CACHE_HOME:-$HOME/.cache}/hyde/landing/mpris.png"
+        fi
+        ;;
+    media-source)
+        read_field "$media_cache" 1 "Media"
+        ;;
+    media-status)
+        read_field "$media_cache" 2 "Standby"
+        ;;
+    media-status-icon)
+        case "$(read_field "$media_cache" 2 "Standby")" in
+            Playing)
+                printf '⏸\n'
+                ;;
+            Paused|Stopped|Standby|*)
+                printf '▶\n'
+                ;;
+        esac
+        ;;
+    media-title-1)
+        read_field "$media_cache" 3 "Nothing playing"
+        ;;
+    media-title-2)
+        read_field "$media_cache" 4 ""
+        ;;
+    media-title-3)
+        read_field "$media_cache" 5 ""
+        ;;
+    media-sub)
+        read_field "$media_cache" 6 "$(read_field "$media_cache" 5 "Open music to fill this card")"
+        ;;
+    weather-icon)
+        read_field "$weather_cache" 1 "•"
+        ;;
+    weather-main)
+        read_field "$weather_cache" 2 "--"
+        ;;
+    weather-sub)
+        read_field "$weather_cache" 3 "Weather unavailable"
+        ;;
+    weather-place)
+        read_field "$weather_cache" 4 "$weather_location"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

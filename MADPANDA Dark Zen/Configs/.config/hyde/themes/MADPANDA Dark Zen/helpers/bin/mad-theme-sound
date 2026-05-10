@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-theme-sound <event> [Theme Name]
+
+Plays the active theme's declared event sound. Missing sounds are a quiet no-op.
+EOF
+}
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+theme_config_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+theme_feature_enabled() {
+    local theme="$1"
+    local feature="$2"
+    local config var value
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$(theme_config_slug "$theme")/features.env"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="1"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+find_sink() {
+    local preference="$1"
+    local needle
+    [[ -n "$preference" ]] || return 1
+    needle="$(printf '%s' "$preference" | tr '[:upper:] ' '[:lower:]_')"
+    pactl list short sinks 2>/dev/null | awk -v needle="$needle" '
+        {
+            row = tolower($0)
+            if (index(row, needle) > 0) {
+                print $2
+                exit
+            }
+        }
+    '
+}
+
+select_player() {
+    local requested="$1"
+    if [[ "$requested" != "auto" && -n "$requested" ]] && command -v "$requested" >/dev/null 2>&1; then
+        printf '%s\n' "$requested"
+        return 0
+    fi
+
+    local candidate
+    for candidate in mpg123 mpv ffplay pw-play paplay canberra-gtk-play; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+play_with() {
+    local player="$1"
+    local sound="$2"
+    local target_sink="${3:-}"
+
+    case "$player" in
+        mpg123)
+            if [[ -n "$target_sink" ]]; then
+                PULSE_SINK="$target_sink" mpg123 -q "$sound"
+            else
+                mpg123 -q "$sound"
+            fi
+            ;;
+        mpv)
+            if [[ -n "$target_sink" ]]; then
+                mpv --no-terminal --force-window=no --really-quiet --audio-device="pulse/$target_sink" "$sound"
+            else
+                mpv --no-terminal --force-window=no --really-quiet "$sound"
+            fi
+            ;;
+        ffplay)
+            if [[ -n "$target_sink" ]]; then
+                PULSE_SINK="$target_sink" ffplay -nodisp -autoexit -loglevel quiet "$sound"
+            else
+                ffplay -nodisp -autoexit -loglevel quiet "$sound"
+            fi
+            ;;
+        pw-play)
+            if [[ -n "$target_sink" ]]; then
+                pw-play --target "$target_sink" "$sound"
+            else
+                pw-play "$sound"
+            fi
+            ;;
+        paplay)
+            if [[ -n "$target_sink" ]]; then
+                PULSE_SINK="$target_sink" paplay "$sound"
+            else
+                paplay "$sound"
+            fi
+            ;;
+        canberra-gtk-play)
+            canberra-gtk-play -f "$sound"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+main() {
+    local event="${1:-}"
+    local theme="${2:-}"
+    local live_dir manifest sound_rel sound_file debounce requested_player player output_preference target_sink runtime_dir stamp_file now last
+
+    case "$event" in
+        -h|--help|help|"")
+            usage
+            exit 0
+            ;;
+        "")
+            usage >&2
+            exit 2
+            ;;
+    esac
+
+    if [[ ! "$event" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        usage >&2
+        exit 2
+    fi
+
+    [[ -n "$theme" ]] || theme="$(current_theme)"
+    [[ -n "$theme" ]] || exit 0
+    if [[ "$event" == "tileClose" ]]; then
+        theme_feature_enabled "$theme" effects || exit 0
+    else
+        theme_feature_enabled "$theme" sounds || exit 0
+    fi
+
+    live_dir="$theme_root/$theme"
+    manifest="$live_dir/theme.json"
+    [[ -r "$manifest" ]] || exit 0
+    command -v jq >/dev/null 2>&1 || exit 0
+
+    sound_rel="$(jq -r --arg event "$event" '.sounds[$event] // empty' "$manifest")"
+    [[ -n "$sound_rel" ]] || exit 0
+
+    if [[ "$sound_rel" == /* ]]; then
+        sound_file="$sound_rel"
+    else
+        sound_file="$live_dir/$sound_rel"
+    fi
+    [[ -r "$sound_file" ]] || exit 0
+
+    requested_player="$(jq -r '.sounds.player // "auto"' "$manifest")"
+    output_preference="$(jq -r '.sounds.outputPreference // empty' "$manifest")"
+    target_sink="$(find_sink "$output_preference" || true)"
+    player="$(select_player "$requested_player")" || exit 0
+
+    if [[ "${MAD_THEME_SOUND_DRY_RUN:-0}" == "1" ]]; then
+        printf 'event=%s\n' "$event"
+        printf 'theme=%s\n' "$theme"
+        printf 'sound=%s\n' "$sound_file"
+        printf 'outputPreference=%s\n' "$output_preference"
+        printf 'targetSink=%s\n' "$target_sink"
+        printf 'player=%s\n' "$player"
+        return 0
+    fi
+
+    debounce="$(jq -r '.sounds.debounceSeconds // 2' "$manifest")"
+    [[ "$debounce" =~ ^[0-9]+$ ]] || debounce="2"
+
+    runtime_dir="${XDG_RUNTIME_DIR:-/tmp}/madpanda-theme-sound"
+    mkdir -p "$runtime_dir"
+    stamp_file="$runtime_dir/$(theme_slug "$theme").$event.last"
+    now="$(date +%s)"
+    last="0"
+    if [[ -r "$stamp_file" ]]; then
+        read -r last <"$stamp_file" || last="0"
+    fi
+    [[ "$last" =~ ^[0-9]+$ ]] || last="0"
+    if (( debounce > 0 && now - last < debounce )); then
+        exit 0
+    fi
+    printf '%s\n' "$now" >"$stamp_file"
+
+    if [[ "${MAD_THEME_SOUND_FOREGROUND:-0}" == "1" ]]; then
+        play_with "$player" "$sound_file" "$target_sink"
+    else
+        ( play_with "$player" "$sound_file" "$target_sink" ) >/dev/null 2>&1 &
+    fi
+}
+
+main "$@"

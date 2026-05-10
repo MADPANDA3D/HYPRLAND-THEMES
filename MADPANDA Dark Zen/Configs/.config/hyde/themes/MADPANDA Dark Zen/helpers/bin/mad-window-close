@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+set -u
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+sound_bin="${MAD_THEME_SOUND_BIN:-$HOME/.local/bin/mad-theme-sound}"
+burst_bin="${MAD_WINDOW_BURST_BIN:-$HOME/.local/bin/mad-window-burst}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-window-close [--dry-run] [--theme "Theme Name"]
+
+Closes the active Hyprland window, plays the current theme's tile-close sound,
+and runs the optional synthetic close burst.
+EOF
+}
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' /' '--'
+}
+
+theme_feature_enabled() {
+    local theme="$1"
+    local feature="$2"
+    local config var value
+    config="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$(theme_slug "$theme")/features.env"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="1"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+json_optional() {
+    local manifest="$1"
+    local expr="$2"
+    jq -r "$expr // empty" "$manifest" 2>/dev/null
+}
+
+close_active_fallback() {
+    hyprctl dispatch killactive >/dev/null 2>&1 || true
+}
+
+close_address() {
+    local address="$1"
+    local active_after_focus
+    if [[ -n "$address" && "$address" != "null" ]]; then
+        hyprctl dispatch focuswindow "address:$address" >/dev/null 2>&1 || return 0
+        active_after_focus="$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty' 2>/dev/null)"
+        if [[ "$active_after_focus" == "$address" ]]; then
+            close_active_fallback
+        else
+            hyprctl dispatch closewindow "address:$address" >/dev/null 2>&1 || true
+        fi
+    else
+        close_active_fallback
+    fi
+}
+
+main() {
+    local dry_run="0"
+    local theme=""
+    while (($#)); do
+        case "$1" in
+            --dry-run)
+                dry_run="1"
+                ;;
+            --theme)
+                shift
+                theme="${1:-}"
+                ;;
+            -h|--help|help)
+                usage
+                exit 0
+                ;;
+            *)
+                usage >&2
+                exit 2
+                ;;
+        esac
+        shift || true
+    done
+
+    [[ -n "$theme" ]] || theme="$(current_theme)"
+    local live_dir="$theme_root/$theme"
+    local manifest="$live_dir/theme.json"
+
+    local active_json
+    active_json="$(hyprctl activewindow -j 2>/dev/null)" || {
+        [[ "$dry_run" == "1" ]] && printf 'activeWindow=missing\n'
+        [[ "$dry_run" == "1" ]] || close_active_fallback
+        exit 0
+    }
+
+    if ! command -v jq >/dev/null 2>&1; then
+        [[ "$dry_run" == "1" ]] && printf 'jq=missing\n'
+        [[ "$dry_run" == "1" ]] || close_active_fallback
+        exit 0
+    fi
+
+    local mapped address x y width height monitor_id class title
+    mapped="$(jq -r '.mapped // false' <<<"$active_json")"
+    address="$(jq -r '.address // empty' <<<"$active_json")"
+    x="$(jq -r '.at[0] // 0' <<<"$active_json")"
+    y="$(jq -r '.at[1] // 0' <<<"$active_json")"
+    width="$(jq -r '.size[0] // 0' <<<"$active_json")"
+    height="$(jq -r '.size[1] // 0' <<<"$active_json")"
+    monitor_id="$(jq -r '.monitor // 0' <<<"$active_json")"
+    class="$(jq -r '.class // empty' <<<"$active_json")"
+    title="$(jq -r '.title // empty' <<<"$active_json")"
+
+    if [[ "$mapped" != "true" || -z "$address" || "$width" -le 0 || "$height" -le 0 ]]; then
+        [[ "$dry_run" == "1" ]] && printf 'activeWindow=unusable address=%s mapped=%s size=%sx%s\n' "$address" "$mapped" "$width" "$height"
+        [[ "$dry_run" == "1" ]] || close_address "$address"
+        exit 0
+    fi
+
+    local effect_enabled="false"
+    local mode=""
+    local duration_ms="420"
+    local shards="18"
+    local accent="#EA0000"
+    local blast="#FF5A1F"
+    local sound_delay_ms="0"
+    local sound_rel=""
+    local sound_file=""
+    local sound_enabled="false"
+    local visual_enabled="false"
+
+    if [[ -r "$manifest" ]]; then
+        effect_enabled="$(json_optional "$manifest" '.effects.tileClose.enabled')"
+        mode="$(json_optional "$manifest" '.effects.tileClose.mode')"
+        duration_ms="$(json_optional "$manifest" '.effects.tileClose.durationMs')"
+        shards="$(json_optional "$manifest" '.effects.tileClose.shards')"
+        accent="$(json_optional "$manifest" '.effects.tileClose.accent')"
+        blast="$(json_optional "$manifest" '.effects.tileClose.blast')"
+        sound_delay_ms="$(json_optional "$manifest" '.effects.tileClose.soundDelayMs')"
+        sound_rel="$(json_optional "$manifest" '.sounds.tileClose')"
+    fi
+
+    [[ "$effect_enabled" == "true" ]] || effect_enabled="false"
+    [[ "$duration_ms" =~ ^[0-9]+$ ]] || duration_ms="420"
+    [[ "$shards" =~ ^[0-9]+$ ]] || shards="18"
+    [[ "$shards" -ge 4 ]] || shards="4"
+    [[ "$sound_delay_ms" =~ ^[0-9]+$ ]] || sound_delay_ms="0"
+
+    if [[ -n "$sound_rel" ]]; then
+        if [[ "$sound_rel" == /* ]]; then
+            sound_file="$sound_rel"
+        else
+            sound_file="$live_dir/$sound_rel"
+        fi
+    fi
+    if [[ -n "$sound_file" && -r "$sound_file" ]] && theme_feature_enabled "$theme" effects; then
+        sound_enabled="true"
+    fi
+    if [[ "$effect_enabled" == "true" && "$mode" == "synthetic-explode" && -x "$burst_bin" ]] && theme_feature_enabled "$theme" effects; then
+        visual_enabled="true"
+    fi
+
+    local monitors_json monitor_json monitor_name monitor_x monitor_y monitor_width monitor_height local_x local_y
+    monitors_json="$(hyprctl monitors -j 2>/dev/null || printf '[]')"
+    monitor_json="$(jq -c --argjson id "$monitor_id" '.[] | select(.id == $id)' <<<"$monitors_json" | head -n 1)"
+    monitor_name="$(jq -r '.name // empty' <<<"$monitor_json" 2>/dev/null)"
+    monitor_x="$(jq -r '.x // 0' <<<"$monitor_json" 2>/dev/null)"
+    monitor_y="$(jq -r '.y // 0' <<<"$monitor_json" 2>/dev/null)"
+    monitor_width="$(jq -r '.width // 0' <<<"$monitor_json" 2>/dev/null)"
+    monitor_height="$(jq -r '.height // 0' <<<"$monitor_json" 2>/dev/null)"
+    local_x=$((x - monitor_x))
+    local_y=$((y - monitor_y))
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'theme=%s\n' "$theme"
+        printf 'manifest=%s\n' "$manifest"
+        printf 'address=%s\n' "$address"
+        printf 'class=%s\n' "$class"
+        printf 'title=%s\n' "$title"
+        printf 'geometry=%s,%s %sx%s\n' "$x" "$y" "$width" "$height"
+        printf 'monitor=%s id=%s geometry=%s,%s %sx%s\n' "$monitor_name" "$monitor_id" "$monitor_x" "$monitor_y" "$monitor_width" "$monitor_height"
+        printf 'localGeometry=%s,%s %sx%s\n' "$local_x" "$local_y" "$width" "$height"
+        printf 'sound=%s\n' "$sound_file"
+        printf 'soundEnabled=%s\n' "$sound_enabled"
+        printf 'visualEffect=%s mode=%s durationMs=%s shards=%s soundDelayMs=%s accent=%s blast=%s helper=%s\n' "$visual_enabled" "$mode" "$duration_ms" "$shards" "$sound_delay_ms" "$accent" "$blast" "$burst_bin"
+        printf 'closeCommand=hyprctl dispatch closewindow address:%s\n' "$address"
+        exit 0
+    fi
+
+    if [[ "$sound_enabled" == "true" ]]; then
+        "$sound_bin" tileClose >/dev/null 2>&1 &
+    fi
+
+    close_address "$address"
+
+    if [[ "$visual_enabled" == "true" ]]; then
+        "$burst_bin" \
+            --x "$local_x" \
+            --y "$local_y" \
+            --width "$width" \
+            --height "$height" \
+            --monitor-id "$monitor_id" \
+            --monitor-name "$monitor_name" \
+            --monitor-x "$monitor_x" \
+            --monitor-y "$monitor_y" \
+            --monitor-width "$monitor_width" \
+            --monitor-height "$monitor_height" \
+            --duration-ms "$duration_ms" \
+            --shards "$shards" \
+            --accent "$accent" \
+            --blast "$blast" >/dev/null 2>&1 &
+    fi
+}
+
+main "$@"

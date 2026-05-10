@@ -1,0 +1,383 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+runtime_root="${XDG_RUNTIME_DIR:-/tmp}/madpanda-lock-surfaces"
+state_file="$runtime_root/state.env"
+dock_inhibit_file="${MAD_LOCK_DOCK_INHIBIT_FILE:-$runtime_root/dock-inhibit}"
+configured_waybar_service="${MAD_WAYBAR_SERVICE:-}"
+dock_helper="${MAD_DOCK_HELPER:-$HOME/.local/bin/mad-dock-all-monitors}"
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+hyde_state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+eww_bar_helper="${MAD_EWW_BAR_BIN:-$(command -v mad-eww-bar 2>/dev/null || printf '%s/mad-eww-bar' "${XDG_BIN_HOME:-$HOME/.local/bin}")}"
+bar_provider_helper="${MAD_BAR_PROVIDER_BIN:-$(command -v mad-bar-provider 2>/dev/null || printf '%s/mad-bar-provider' "${XDG_BIN_HOME:-$HOME/.local/bin}")}"
+dry_run=0
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-lock-surfaces hide [--dry-run]
+  mad-lock-surfaces restore [--dry-run]
+  mad-lock-surfaces status
+
+Temporarily hides Waybar and MADPANDA dock surfaces for the lock screen.
+EOF
+}
+
+die() {
+    printf 'mad-lock-surfaces: %s\n' "$*" >&2
+    exit 1
+}
+
+current_theme() {
+    if [[ -r "$hyde_state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$hyde_state_file" | tail -n 1
+    fi
+}
+
+theme_owns_eww_bar() {
+    local theme manifest
+    theme="$(current_theme)"
+    [[ -n "$theme" ]] || return 1
+    manifest="$theme_root/$theme/theme.json"
+    [[ -r "$manifest" ]] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+    jq -e '.bar.provider == "eww"' "$manifest" >/dev/null 2>&1
+}
+
+bar_owner() {
+    local selected=""
+    if [[ -x "$bar_provider_helper" ]]; then
+        selected="$("$bar_provider_helper" current 2>/dev/null || true)"
+    fi
+    if [[ "$selected" == "eww" || "$selected" == "waybar" ]]; then
+        printf '%s\n' "$selected"
+    elif theme_owns_eww_bar; then
+        printf 'eww\n'
+    else
+        printf 'waybar\n'
+    fi
+}
+
+waybar_pids() {
+    pgrep -f '(^|/)waybar( |$)' || true
+}
+
+waybar_process_count() {
+    pgrep -fc '(^|/)waybar( |$)' || true
+}
+
+systemd_user_service_loaded() {
+    local service="$1"
+    [[ -n "$service" ]] || return 1
+    [[ "$(systemctl --user show -p LoadState --value "$service" 2>/dev/null || true)" == "loaded" ]]
+}
+
+detect_waybar_service() {
+    local service
+    if [[ -n "$configured_waybar_service" ]]; then
+        printf '%s\n' "$configured_waybar_service"
+        return 0
+    fi
+
+    if command -v systemctl >/dev/null 2>&1; then
+        for service in hyde-Hyprland-bar.service waybar.service; do
+            if systemctl --user is-active --quiet "$service" || systemd_user_service_loaded "$service"; then
+                printf '%s\n' "$service"
+                return 0
+            fi
+        done
+    fi
+
+    printf 'waybar.service\n'
+}
+
+waybar_service="$(detect_waybar_service)"
+
+waybar_state() {
+    if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet "$waybar_service"; then
+        printf 'active\n'
+    elif [[ "$(waybar_process_count)" != "0" ]]; then
+        printf 'active\n'
+    else
+        printf 'inactive\n'
+    fi
+}
+
+eww_bar_state() {
+    local status
+    [[ -x "$eww_bar_helper" ]] || { printf 'inactive\n'; return 0; }
+    status="$("$eww_bar_helper" status 2>/dev/null || true)"
+    if grep -q '^Daemon: running$' <<<"$status"; then
+        printf 'active\n'
+    else
+        printf 'inactive\n'
+    fi
+}
+
+dock_pids() {
+    pgrep -f '(^|/)nwg-dock-hyprland( |$)' || true
+}
+
+dock_process_count() {
+    pgrep -fc '(^|/)nwg-dock-hyprland( |$)' || true
+}
+
+dock_layer_count() {
+    if command -v hyprctl >/dev/null 2>&1; then
+        hyprctl layers 2>/dev/null | grep -c 'namespace: nwg-dock' || true
+    else
+        printf '0\n'
+    fi
+}
+
+watcher_count() {
+    pgrep -fc '(^|/)mad-dock-all-monitors --watch' || true
+}
+
+stop_waybar() {
+    local pid
+    if command -v systemctl >/dev/null 2>&1 && systemd_user_service_loaded "$waybar_service"; then
+        systemctl --user stop "$waybar_service" >/dev/null 2>&1 || true
+    fi
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        kill "$pid" >/dev/null 2>&1 || true
+    done < <(waybar_pids)
+}
+
+start_waybar() {
+    if command -v systemctl >/dev/null 2>&1 && systemd_user_service_loaded "$waybar_service"; then
+        systemctl --user start "$waybar_service" >/dev/null 2>&1 || true
+    fi
+    sleep 0.2
+    if [[ "$(waybar_process_count)" == "0" ]] && command -v waybar >/dev/null 2>&1; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f waybar >/dev/null 2>&1
+        else
+            waybar >/dev/null 2>&1 &
+        fi
+    fi
+}
+
+start_eww_bar() {
+    [[ -x "$eww_bar_helper" ]] || return 0
+    "$eww_bar_helper" lock-restore >/dev/null 2>&1 || "$eww_bar_helper" start >/dev/null 2>&1 || true
+}
+
+stop_eww_bar() {
+    [[ -x "$eww_bar_helper" ]] || return 0
+    "$eww_bar_helper" lock-hide >/dev/null 2>&1 || "$eww_bar_helper" stop >/dev/null 2>&1 || true
+}
+
+write_state() {
+    local owner="$1"
+    local waybar="$2"
+    local eww="$3"
+    mkdir -p "$runtime_root"
+    {
+        printf 'bar_owner=%q\n' "$owner"
+        printf 'waybar_state=%q\n' "$waybar"
+        printf 'eww_state=%q\n' "$eww"
+        printf 'dock_inhibit_file=%q\n' "$dock_inhibit_file"
+        printf 'created_at=%q\n' "$(date --iso-8601=seconds)"
+    } >"$state_file.tmp"
+    mv -f "$state_file.tmp" "$state_file"
+}
+
+read_saved_waybar_state() {
+    local value=""
+    if [[ -r "$state_file" ]]; then
+        value="$(awk -F '=' '$1 == "waybar_state" { print $2; exit }' "$state_file" | sed "s/^'//; s/'$//")"
+    fi
+    [[ -n "$value" ]] || value="unknown"
+    printf '%s\n' "$value"
+}
+
+read_saved_eww_state() {
+    local value=""
+    if [[ -r "$state_file" ]]; then
+        value="$(awk -F '=' '$1 == "eww_state" { print $2; exit }' "$state_file" | sed "s/^'//; s/'$//")"
+    fi
+    [[ -n "$value" ]] || value="unknown"
+    printf '%s\n' "$value"
+}
+
+read_saved_bar_owner() {
+    local value=""
+    if [[ -r "$state_file" ]]; then
+        value="$(awk -F '=' '$1 == "bar_owner" { print $2; exit }' "$state_file" | sed "s/^'//; s/'$//")"
+    fi
+    [[ -n "$value" ]] || value="$(bar_owner)"
+    printf '%s\n' "$value"
+}
+
+wait_for_no_docks() {
+    local attempt
+    for attempt in {1..20}; do
+        [[ "$(dock_process_count)" == "0" ]] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+hide_surfaces() {
+    local owner waybar eww pid
+    owner="$(bar_owner)"
+    waybar="$(waybar_state)"
+    eww="$(eww_bar_state)"
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'barOwner=%s\n' "$owner"
+        printf 'waybarService=%s\n' "$waybar_service"
+        printf 'waybarBefore=%s\n' "$waybar"
+        printf 'ewwBefore=%s\n' "$eww"
+        printf 'dockInhibitFile=%s\n' "$dock_inhibit_file"
+        printf 'dockProcessCount=%s\n' "$(dock_process_count)"
+        printf 'dockLayerCount=%s\n' "$(dock_layer_count)"
+        printf 'dockWatcherCount=%s\n' "$(watcher_count)"
+        printf 'command=touch %q\n' "$dock_inhibit_file"
+        if [[ "$owner" == "eww" ]]; then
+            [[ "$eww" == "active" ]] && printf 'command=eww-lock-hide helper=%q\n' "$eww_bar_helper"
+        else
+            [[ "$waybar" == "active" ]] && printf 'command=stop-waybar service=%q processes=%s\n' "$waybar_service" "$(waybar_process_count)"
+        fi
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            printf 'command=kill %s\n' "$pid"
+        done < <(dock_pids)
+        return 0
+    fi
+
+    if [[ -e "$state_file" ]]; then
+        die "existing surface-hide state found; run 'mad-lock-surfaces restore' first"
+    fi
+
+    write_state "$owner" "$waybar" "$eww"
+    mkdir -p "$runtime_root"
+    printf 'lock\n' >"$dock_inhibit_file"
+
+    if [[ "$owner" == "eww" ]]; then
+        [[ "$eww" == "active" ]] && stop_eww_bar
+    else
+        [[ "$waybar" == "active" ]] && stop_waybar
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        kill "$pid" >/dev/null 2>&1 || true
+    done < <(dock_pids)
+    wait_for_no_docks >/dev/null 2>&1 || true
+
+    status_surfaces
+}
+
+restore_surfaces() {
+    local saved_owner saved_waybar saved_eww pids=() pid
+    saved_owner="$(read_saved_bar_owner)"
+    saved_waybar="$(read_saved_waybar_state)"
+    saved_eww="$(read_saved_eww_state)"
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'barOwner=%s\n' "$saved_owner"
+        printf 'waybarService=%s\n' "$waybar_service"
+        printf 'waybarSaved=%s\n' "$saved_waybar"
+        printf 'ewwSaved=%s\n' "$saved_eww"
+        printf 'dockInhibitFile=%s\n' "$dock_inhibit_file"
+        printf 'command=rm -f %q\n' "$dock_inhibit_file"
+        printf 'command=%q\n' "$dock_helper"
+        if [[ "$saved_owner" == "eww" ]]; then
+            [[ "$saved_eww" == "active" ]] && printf 'command=eww-lock-restore helper=%q\n' "$eww_bar_helper"
+        else
+            [[ "$saved_waybar" == "active" ]] && printf 'command=start-waybar service=%q\n' "$waybar_service"
+        fi
+        return 0
+    fi
+
+    rm -f "$dock_inhibit_file"
+    if [[ -x "$dock_helper" ]]; then
+        "$dock_helper" >/dev/null 2>&1 &
+        pids+=("$!")
+    elif command -v mad-dock-all-monitors >/dev/null 2>&1; then
+        mad-dock-all-monitors >/dev/null 2>&1 &
+        pids+=("$!")
+    fi
+
+    if [[ "$saved_owner" == "eww" ]]; then
+        if [[ "$saved_eww" == "active" ]]; then
+            start_eww_bar &
+            pids+=("$!")
+        fi
+    else
+        if [[ "$saved_waybar" == "active" ]]; then
+            start_waybar &
+            pids+=("$!")
+        fi
+    fi
+
+    for pid in "${pids[@]}"; do
+        wait "$pid" >/dev/null 2>&1 || true
+    done
+
+    rm -f "$state_file"
+    status_surfaces
+}
+
+status_surfaces() {
+    printf 'stateDir=%s\n' "$runtime_root"
+    printf 'stateFile=%s\n' "$state_file"
+    printf 'state=%s\n' "$([[ -e "$state_file" ]] && printf hidden || printf idle)"
+    printf 'dockInhibitFile=%s\n' "$dock_inhibit_file"
+    printf 'dockInhibited=%s\n' "$([[ -e "$dock_inhibit_file" ]] && printf true || printf false)"
+    printf 'barOwner=%s\n' "$(bar_owner)"
+    printf 'waybarService=%s\n' "$waybar_service"
+    printf 'waybarCurrent=%s\n' "$(waybar_state)"
+    printf 'waybarSaved=%s\n' "$(read_saved_waybar_state)"
+    printf 'waybarProcessCount=%s\n' "$(waybar_process_count)"
+    printf 'ewwCurrent=%s\n' "$(eww_bar_state)"
+    printf 'ewwSaved=%s\n' "$(read_saved_eww_state)"
+    printf 'dockProcessCount=%s\n' "$(dock_process_count)"
+    printf 'dockLayerCount=%s\n' "$(dock_layer_count)"
+    printf 'dockWatcherCount=%s\n' "$(watcher_count)"
+}
+
+action="${1:-status}"
+if [[ $# -gt 0 ]]; then
+    shift
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+case "$action" in
+    hide)
+        hide_surfaces
+        ;;
+    restore)
+        restore_surfaces
+        ;;
+    status)
+        status_surfaces
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

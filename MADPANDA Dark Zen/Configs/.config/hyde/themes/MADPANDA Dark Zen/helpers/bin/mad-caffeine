@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/caffeine"
+pid_file="$state_dir/inhibit.pid"
+log_file="$state_dir/inhibit.log"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-caffeine status
+  mad-caffeine on
+  mad-caffeine off
+  mad-caffeine toggle
+  mad-caffeine icon
+
+Toggles a user idle inhibitor so Hypridle will not autolock or DPMS while
+caffeine mode is active.
+EOF
+}
+
+inhibitor_alive() {
+    local pid=""
+    [[ -r "$pid_file" ]] && pid="$(<"$pid_file")"
+    [[ -n "$pid" ]] || return 1
+    kill -0 "$pid" >/dev/null 2>&1 || return 1
+    ps -p "$pid" -o args= 2>/dev/null | grep -q 'systemd-inhibit.*MADPANDA Dark Zen caffeine'
+}
+
+cleanup_dead() {
+    inhibitor_alive && return 0
+    rm -f "$pid_file"
+}
+
+status_word() {
+    if inhibitor_alive; then
+        printf 'active\n'
+    else
+        cleanup_dead
+        printf 'inactive\n'
+    fi
+}
+
+turn_on() {
+    mkdir -p "$state_dir"
+    if inhibitor_alive; then
+        printf 'active\n'
+        return 0
+    fi
+    systemd-inhibit \
+        --what=idle \
+        --mode=block \
+        --who="MADPANDA Dark Zen caffeine" \
+        --why="Caffeine mode is active" \
+        sleep infinity >"$log_file" 2>&1 &
+    printf '%s\n' "$!" >"$pid_file"
+    printf 'active\n'
+}
+
+turn_off() {
+    local pid=""
+    [[ -r "$pid_file" ]] && pid="$(<"$pid_file")"
+    if [[ -n "$pid" ]]; then
+        kill "$pid" >/dev/null 2>&1 || true
+        sleep 0.1
+        kill -9 "$pid" >/dev/null 2>&1 || true
+    fi
+    rm -f "$pid_file"
+    printf 'inactive\n'
+}
+
+case "${1:-status}" in
+    status)
+        status_word
+        ;;
+    on)
+        turn_on
+        ;;
+    off)
+        turn_off
+        ;;
+    toggle)
+        if inhibitor_alive; then
+            turn_off
+        else
+            turn_on
+        fi
+        ;;
+    icon)
+        if inhibitor_alive; then
+            printf '󰅶\n'
+        else
+            cleanup_dead
+            printf '󱻊\n'
+        fi
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

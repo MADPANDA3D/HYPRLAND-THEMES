@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+theme_name="${MAD_DARK_ZEN_THEME_NAME:-MADPANDA Dark Zen}"
+theme_dir="${MAD_DARK_ZEN_THEME_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/$theme_name}"
+wallpaper_root="$theme_dir/wallpapers"
+lock_wallpaper_dir="${MAD_DARK_ZEN_LOCK_WALLPAPER_DIR:-$theme_dir/wallpapers/lock-screen}"
+runtime_root="${XDG_RUNTIME_DIR:-/tmp}/madpanda-lock-wallpaper"
+state_file="$runtime_root/wallpapers.tsv"
+dry_run=0
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-lock-wallpaper apply [--dry-run]
+  mad-lock-wallpaper restore [--dry-run]
+  mad-lock-wallpaper status
+
+Temporarily swaps standard awww outputs to Dark Zen lock-screen wallpaper
+doubles, while preserving animated and high-res tier assets. Restore returns
+the exact original per-output wallpaper paths.
+EOF
+}
+
+die() {
+    printf 'mad-lock-wallpaper: %s\n' "$*" >&2
+    exit 1
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+sanitize_tsv() {
+    tr '\t\r\n' '   ' <<<"${1:-}" | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+}
+
+current_wallpapers() {
+    awww query 2>/dev/null | while IFS= read -r line; do
+        sed -nE 's/^.*: ([^:]+): [0-9]+x[0-9]+, scale: [^,]+, currently displaying: image: (.*)$/\1\t\2/p' <<<"$line"
+    done | awk -F '\t' 'NF >= 2 && $1 != "" && $2 != "" {
+        printf "%s\t%s\n", $1, $2
+    }'
+}
+
+current_wallpaper_for_output() {
+    local requested_output="$1"
+    current_wallpapers | awk -F '\t' -v output="$requested_output" '$1 == output { print $2; exit }'
+}
+
+is_tiered_theme_wallpaper() {
+    local original="$1"
+    case "$original" in
+        "$wallpaper_root"/animated/*|"$wallpaper_root"/hires/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
+lock_wallpaper_for() {
+    local original="$1"
+    local legacy_lock="$lock_wallpaper_dir/${original##*/}"
+
+    if is_tiered_theme_wallpaper "$original" && [[ -r "$original" ]]; then
+        printf '%s\n' "$original"
+    elif [[ -r "$legacy_lock" ]]; then
+        printf '%s\n' "$legacy_lock"
+    else
+        printf '%s\n' "$original"
+    fi
+}
+
+print_apply_plan() {
+    local file="$1" output original lock_path exists
+    printf 'themeDir=%s\n' "$theme_dir"
+    printf 'lockWallpaperDir=%s\n' "$lock_wallpaper_dir"
+    while IFS=$'\t' read -r output original; do
+        [[ -n "$output" && -n "$original" ]] || continue
+        lock_path="$(lock_wallpaper_for "$original")"
+        exists=false
+        [[ -r "$lock_path" ]] && exists=true
+        printf 'output=%s original=%s lock=%s exists=%s\n' \
+            "$(sanitize_tsv "$output")" \
+            "$(sanitize_tsv "$original")" \
+            "$(sanitize_tsv "$lock_path")" \
+            "$exists"
+        if [[ "$lock_path" == "$original" ]]; then
+            printf 'command=preserve-current %q\n' "$output"
+        else
+            printf 'command=awww img --outputs %q --transition-type none %q\n' "$output" "$lock_path"
+        fi
+    done <"$file"
+}
+
+print_restore_plan() {
+    local file="$1" output original current
+    printf 'stateFile=%s\n' "$state_file"
+    while IFS=$'\t' read -r output original; do
+        [[ -n "$output" && -n "$original" ]] || continue
+        printf 'output=%s restore=%s exists=%s\n' \
+            "$(sanitize_tsv "$output")" \
+            "$(sanitize_tsv "$original")" \
+            "$([[ -r "$original" ]] && printf true || printf false)"
+        current="$(current_wallpaper_for_output "$output")"
+        if [[ "$current" == "$original" ]]; then
+            printf 'command=preserve-current %q\n' "$output"
+        else
+            printf 'command=awww img --outputs %q --transition-type none %q\n' "$output" "$original"
+        fi
+    done <"$file"
+}
+
+apply_wallpapers() {
+    need_cmd awww
+
+    local tmp output original lock_path ok=1
+    tmp="$(mktemp)"
+    current_wallpapers >"$tmp"
+
+    if [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        die "no current awww image outputs found"
+    fi
+
+    if [[ "$dry_run" == "1" ]]; then
+        print_apply_plan "$tmp"
+        rm -f "$tmp"
+        return 0
+    fi
+
+    if [[ -e "$state_file" ]]; then
+        rm -f "$tmp"
+        die "existing lock wallpaper state found; run 'mad-lock-wallpaper restore' first"
+    fi
+
+    while IFS=$'\t' read -r output original; do
+        [[ -n "$output" && -n "$original" ]] || continue
+        lock_path="$(lock_wallpaper_for "$original")"
+        if [[ ! -r "$lock_path" ]]; then
+            ok=0
+            printf 'mad-lock-wallpaper: missing lock wallpaper for %s: %s\n' "$original" "$lock_path" >&2
+        fi
+    done <"$tmp"
+
+    if [[ "$ok" != "1" ]]; then
+        rm -f "$tmp"
+        return 1
+    fi
+
+    mkdir -p "$runtime_root"
+    install -m 0600 "$tmp" "$state_file"
+    rm -f "$tmp"
+
+    while IFS=$'\t' read -r output original; do
+        [[ -n "$output" && -n "$original" ]] || continue
+        lock_path="$(lock_wallpaper_for "$original")"
+        if [[ "$lock_path" == "$original" ]]; then
+            continue
+        fi
+        if ! awww img --outputs "$output" --transition-type none "$lock_path" >/dev/null; then
+            ok=0
+            break
+        fi
+    done <"$state_file"
+
+    if [[ "$ok" != "1" ]]; then
+        restore_wallpapers >/dev/null 2>&1 || true
+        die "failed while applying lock wallpapers; restored any changed outputs"
+    fi
+
+    print_apply_plan "$state_file"
+}
+
+restore_wallpapers() {
+    need_cmd awww
+
+    local output original current
+    if [[ ! -e "$state_file" ]]; then
+        [[ "$dry_run" == "1" ]] && printf 'state=missing\n'
+        return 0
+    fi
+
+    if [[ "$dry_run" == "1" ]]; then
+        print_restore_plan "$state_file"
+        return 0
+    fi
+
+    while IFS=$'\t' read -r output original; do
+        [[ -n "$output" && -n "$original" ]] || continue
+        [[ -r "$original" ]] || continue
+        current="$(current_wallpaper_for_output "$output")"
+        [[ "$current" == "$original" ]] && continue
+        awww img --outputs "$output" --transition-type none "$original" >/dev/null || true
+    done <"$state_file"
+    rm -f "$state_file"
+}
+
+status_wallpapers() {
+    printf 'themeDir=%s\n' "$theme_dir"
+    printf 'lockWallpaperDir=%s\n' "$lock_wallpaper_dir"
+    printf 'stateFile=%s\n' "$state_file"
+    if [[ -r "$state_file" ]]; then
+        printf 'state=applied\n'
+        print_restore_plan "$state_file"
+    else
+        printf 'state=idle\n'
+    fi
+    if command -v awww >/dev/null 2>&1; then
+        current_wallpapers | awk -F '\t' 'NF >= 2 {
+            printf "current output=%s wallpaper=%s\n", $1, $2
+        }'
+    fi
+}
+
+action="${1:-status}"
+if [[ $# -gt 0 ]]; then
+    shift
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+case "$action" in
+    apply)
+        apply_wallpapers
+        ;;
+    restore)
+        restore_wallpapers
+        ;;
+    status)
+        status_wallpapers
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

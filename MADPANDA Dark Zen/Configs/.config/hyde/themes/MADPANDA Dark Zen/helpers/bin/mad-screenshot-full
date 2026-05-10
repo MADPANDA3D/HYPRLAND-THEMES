@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+dir="${XDG_SCREENSHOTS_DIR:-$HOME/Pictures/Screenshots}"
+mkdir -p "$dir"
+
+file="$dir/screenshot-full-$(date +%Y%m%d-%H%M%S).png"
+grim "$file"
+wl-copy < "$file"
+notify-send "Full screenshot saved" "$file"

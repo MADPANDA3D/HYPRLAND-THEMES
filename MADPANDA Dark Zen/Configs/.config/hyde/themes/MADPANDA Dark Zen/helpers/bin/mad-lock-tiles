@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+runtime_root="${XDG_RUNTIME_DIR:-/tmp}/madpanda-lock-tiles"
+state_file="$runtime_root/workspaces.tsv"
+focus_file="$runtime_root/active-window"
+legacy_windows_file="$runtime_root/windows.tsv"
+dry_run=0
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-lock-tiles hide [--dry-run]
+  mad-lock-tiles restore [--dry-run]
+  mad-lock-tiles status
+
+Temporarily hides visible tiled workspaces by switching each monitor to its
+paired empty lock workspace. Windows are not moved.
+EOF
+}
+
+die() {
+    printf 'mad-lock-tiles: %s\n' "$*" >&2
+    exit 1
+}
+
+need_cmd() {
+    command -v "$1" >/dev/null 2>&1 || die "missing command: $1"
+}
+
+current_xray() {
+    hyprctl getoption misc:session_lock_xray 2>/dev/null | awk '/^int:/ { print $2; exit }'
+}
+
+lock_workspace_for_monitor() {
+    case "$1" in
+        DP-5) printf '4\n' ;;
+        DP-6) printf '5\n' ;;
+        DP-7) printf '6\n' ;;
+        *) return 1 ;;
+    esac
+}
+
+current_monitor_workspaces() {
+    hyprctl monitors -j | jq -r '
+        .[]
+        | [
+            ((.name // "") | tostring | gsub("[\t\r\n]"; " ")),
+            ((.activeWorkspace.id // 0) | tostring),
+            ((.activeWorkspace.name // "") | tostring | gsub("[\t\r\n]"; " "))
+        ]
+        | @tsv
+    '
+}
+
+client_count_on_workspace() {
+    local workspace="$1"
+    hyprctl clients -j | jq -r --argjson workspace "$workspace" '
+        [
+            .[]
+            | select(.mapped == true)
+            | select(.hidden == false)
+            | select(.workspace.id == $workspace)
+            | select(((.workspace.name // "") | tostring | startswith("special")) | not)
+        ]
+        | length
+    '
+}
+
+clients_on_workspace() {
+    local workspace="$1"
+    hyprctl clients -j | jq -r --argjson workspace "$workspace" '
+        .[]
+        | select(.mapped == true)
+        | select(.hidden == false)
+        | select(.workspace.id == $workspace)
+        | select(((.workspace.name // "") | tostring | startswith("special")) | not)
+        | "blocker workspace=\(.workspace.id) address=\(.address) class=\(.class) title=\(.title)"
+    '
+}
+
+client_exists() {
+    local address="$1"
+    hyprctl clients -j | jq -e --arg addr "$address" '.[] | select(.address == $addr)' >/dev/null 2>&1
+}
+
+focus_window() {
+    local address="$1"
+    hyprctl dispatch focuswindow "address:$address" >/dev/null
+}
+
+save_focus_state() {
+    mkdir -p "$runtime_root"
+    hyprctl activewindow -j | jq -r '.address // ""' >"$focus_file.tmp"
+    mv -f "$focus_file.tmp" "$focus_file"
+}
+
+restore_focus_state() {
+    local active
+    [[ -r "$focus_file" ]] || return 0
+    active="$(sed -n '1p' "$focus_file")"
+    if [[ -n "$active" ]] && client_exists "$active"; then
+        focus_window "$active" >/dev/null 2>&1 || true
+    fi
+}
+
+build_workspace_plan() {
+    local monitor original_id original_name lock_id blockers
+    while IFS=$'\t' read -r monitor original_id original_name; do
+        [[ -n "$monitor" && "$original_id" =~ ^[0-9]+$ ]] || continue
+        lock_id="$(lock_workspace_for_monitor "$monitor" || true)"
+        if [[ -z "$lock_id" ]]; then
+            printf 'unsupported\t%s\t%s\t%s\t\t\n' "$monitor" "$original_id" "$original_name"
+            continue
+        fi
+        blockers="$(client_count_on_workspace "$lock_id")"
+        printf 'monitor\t%s\t%s\t%s\t%s\t%s\n' "$monitor" "$original_id" "$original_name" "$lock_id" "$blockers"
+    done < <(current_monitor_workspaces)
+}
+
+print_plan() {
+    local file="$1" active="${2:-}" kind monitor original_id original_name lock_id blockers
+    printf 'method=monitor-hidden-workspace\n'
+    [[ -n "$active" ]] && printf 'activeFocus=%s\n' "$active"
+    while IFS=$'\t' read -r kind monitor original_id original_name lock_id blockers; do
+        case "$kind" in
+            monitor)
+                printf 'monitor=%s from=%s to=%s stagingWindowCount=%s\n' \
+                    "$monitor" "$original_id" "$lock_id" "$blockers"
+                ;;
+            unsupported)
+                printf 'unsupportedMonitor=%s from=%s\n' "$monitor" "$original_id"
+                ;;
+        esac
+    done <"$file"
+}
+
+preflight_plan() {
+    local file="$1" ok=1 kind monitor original_id original_name lock_id blockers
+    while IFS=$'\t' read -r kind monitor original_id original_name lock_id blockers; do
+        case "$kind" in
+            unsupported)
+                printf 'mad-lock-tiles: no lock workspace mapping for monitor %s\n' "$monitor" >&2
+                ok=0
+                ;;
+            monitor)
+                if [[ ! "$lock_id" =~ ^[0-9]+$ ]]; then
+                    printf 'mad-lock-tiles: invalid lock workspace for monitor %s\n' "$monitor" >&2
+                    ok=0
+                elif [[ "$blockers" != "0" ]]; then
+                    printf 'mad-lock-tiles: lock workspace %s for monitor %s is not empty\n' "$lock_id" "$monitor" >&2
+                    clients_on_workspace "$lock_id" >&2
+                    ok=0
+                fi
+                ;;
+        esac
+    done <"$file"
+    [[ "$ok" == "1" ]]
+}
+
+switch_monitor_workspace() {
+    local monitor="$1" workspace="$2"
+    hyprctl dispatch focusmonitor "$monitor" >/dev/null
+    hyprctl dispatch workspace "$workspace" >/dev/null
+}
+
+hide_tiles() {
+    need_cmd hyprctl
+    need_cmd jq
+
+    local tmp active kind monitor original_id original_name lock_id blockers ok=1
+    tmp="$(mktemp)"
+    build_workspace_plan >"$tmp"
+    active="$(hyprctl activewindow -j | jq -r '.address // ""')"
+
+    if [[ "$dry_run" == "1" ]]; then
+        print_plan "$tmp" "$active"
+        if preflight_plan "$tmp" >/dev/null 2>&1; then
+            printf 'preflight=ok\n'
+        else
+            printf 'preflight=fail\n'
+            preflight_plan "$tmp" || true
+        fi
+        awk -F '\t' '$1 == "monitor" {
+            printf "command=hyprctl dispatch focusmonitor %s\n", $2
+            printf "command=hyprctl dispatch workspace %s\n", $5
+        }' "$tmp"
+        rm -f "$tmp"
+        return 0
+    fi
+
+    mkdir -p "$runtime_root"
+    if [[ -s "$state_file" ]]; then
+        rm -f "$tmp"
+        die "existing workspace-hide state found; run 'mad-lock-tiles restore' first"
+    fi
+
+    if ! preflight_plan "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+
+    save_focus_state
+    install -m 0600 "$tmp" "$state_file"
+    rm -f "$tmp"
+
+    while IFS=$'\t' read -r kind monitor original_id original_name lock_id blockers; do
+        [[ "$kind" == "monitor" ]] || continue
+        if ! switch_monitor_workspace "$monitor" "$lock_id"; then
+            ok=0
+            break
+        fi
+    done <"$state_file"
+
+    if [[ "$ok" != "1" ]]; then
+        restore_tiles >/dev/null 2>&1 || true
+        die "failed while switching monitors to lock workspaces; restored any changed monitors"
+    fi
+
+    print_plan "$state_file" "$active"
+}
+
+restore_tiles() {
+    need_cmd hyprctl
+    need_cmd jq
+
+    local kind monitor original_id original_name lock_id blockers
+    if [[ ! -e "$state_file" ]]; then
+        [[ "$dry_run" == "1" ]] && printf 'state=missing\n'
+        rm -f "$legacy_windows_file" >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    if [[ "$dry_run" == "1" ]]; then
+        print_plan "$state_file" "$(sed -n '1p' "$focus_file" 2>/dev/null || true)"
+        awk -F '\t' '$1 == "monitor" {
+            printf "command=hyprctl dispatch focusmonitor %s\n", $2
+            printf "command=hyprctl dispatch workspace %s\n", $3
+        }' "$state_file"
+        return 0
+    fi
+
+    while IFS=$'\t' read -r kind monitor original_id original_name lock_id blockers; do
+        [[ "$kind" == "monitor" ]] || continue
+        switch_monitor_workspace "$monitor" "$original_id" || true
+    done <"$state_file"
+    restore_focus_state >/dev/null 2>&1 || true
+    rm -f "$state_file" "$focus_file" "$legacy_windows_file"
+}
+
+status_tiles() {
+    local count=0
+    [[ -r "$state_file" ]] && count="$(awk -F '\t' '$1 == "monitor" { count++ } END { print count + 0 }' "$state_file")"
+    printf 'stateDir=%s\n' "$runtime_root"
+    printf 'stateFile=%s\n' "$state_file"
+    printf 'stagedMonitorCount=%s\n' "$count"
+    printf 'sessionLockXray=%s\n' "$(current_xray || true)"
+    if [[ -r "$state_file" ]]; then
+        print_plan "$state_file" "$(sed -n '1p' "$focus_file" 2>/dev/null || true)"
+    fi
+    current_monitor_workspaces | awk -F '\t' 'NF {
+        printf "current monitor=%s workspace=%s\n", $1, $2
+    }'
+}
+
+action="${1:-status}"
+if [[ $# -gt 0 ]]; then
+    shift
+fi
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        --address)
+            die "--address is not supported by monitor-hidden-workspace mode"
+            ;;
+        *)
+            die "unknown argument: $1"
+            ;;
+    esac
+done
+
+case "$action" in
+    hide)
+        hide_tiles
+        ;;
+    restore)
+        restore_tiles
+        ;;
+    status)
+        status_tiles
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

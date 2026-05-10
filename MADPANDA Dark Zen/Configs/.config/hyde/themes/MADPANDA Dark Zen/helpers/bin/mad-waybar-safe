@@ -1,0 +1,241 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+log_base="${MAD_WAYBAR_SAFE_LOG_BASE:-${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/runs}"
+known_good="${MAD_WAYBAR_SAFE_KNOWN_GOOD:-hyprdots/06}"
+blocked_layouts="${MAD_WAYBAR_SAFE_BLOCKLIST:-macos}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-waybar-safe current
+  mad-waybar-safe list
+  mad-waybar-safe list --all
+  mad-waybar-safe blocked
+  mad-waybar-safe select
+  mad-waybar-safe set "hyprdots/04"
+  mad-waybar-safe next
+  mad-waybar-safe previous
+  mad-waybar-safe recover
+  mad-waybar-safe notify-current
+
+This wraps HyDE Waybar layout switching with backups and a blocklist.
+EOF
+}
+
+current_layout() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^WAYBAR_LAYOUT_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+is_blocked_layout() {
+    local target="$1"
+    local item
+    IFS=',' read -ra items <<<"$blocked_layouts"
+    for item in "${items[@]}"; do
+        item="${item#"${item%%[![:space:]]*}"}"
+        item="${item%"${item##*[![:space:]]}"}"
+        [[ "$target" == "$item" ]] && return 0
+    done
+    return 1
+}
+
+list_blocked_layouts() {
+    local item
+    IFS=',' read -ra items <<<"$blocked_layouts"
+    for item in "${items[@]}"; do
+        item="${item#"${item%%[![:space:]]*}"}"
+        item="${item%"${item##*[![:space:]]}"}"
+        [[ -n "$item" ]] && printf '%s\n' "$item"
+    done
+}
+
+layout_json() {
+    hyde-shell waybar --json
+}
+
+list_layouts() {
+    local include_blocked="${1:-}"
+    layout_json |
+        jq -r '.layouts[] | select((.layout // "") != "") | select((.is_backup_entry // false) == false) | .name' |
+        while IFS= read -r name; do
+            if [[ "$include_blocked" != "--all" ]] && is_blocked_layout "$name"; then
+                continue
+            fi
+            printf '%s\n' "$name"
+        done
+}
+
+layout_exists() {
+    local target="$1"
+    layout_json |
+        jq -e --arg target "$target" '.layouts[] | select((.layout // "") != "") | select(.name == $target or .layout == $target)' >/dev/null
+}
+
+require_graphical_session() {
+    if [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" || -z "${WAYLAND_DISPLAY:-}" ]]; then
+        echo "Refusing live Waybar layout switch: this shell is not inside Hyprland." >&2
+        echo "From TTY, use: mad-waybar-safe recover" >&2
+        exit 2
+    fi
+}
+
+make_run_root() {
+    local target="$1"
+    local safe_target
+    safe_target="$(printf '%s' "$target" | tr ' /' '__' | tr -cd '[:alnum:]_.-')"
+    local ts
+    ts="$(date +%Y%m%dT%H%M%S%z)"
+    printf '%s/waybar-layout-switch-%s-%s\n' "$log_base" "$ts" "$safe_target"
+}
+
+copy_if_exists() {
+    local src="$1"
+    local dst="$2"
+    if [[ -e "$src" || -L "$src" ]]; then
+        mkdir -p "$(dirname "$dst")"
+        cp -a "$src" "$dst"
+    fi
+}
+
+snapshot_state() {
+    local root="$1"
+    local label="$2"
+    mkdir -p "$root/$label/live" "$root/$label/system"
+    copy_if_exists "$state_file" "$root/$label/live/staterc"
+    copy_if_exists "${XDG_CONFIG_HOME:-$HOME/.config}/waybar/config.jsonc" "$root/$label/live/waybar-config.jsonc"
+    copy_if_exists "${XDG_CONFIG_HOME:-$HOME/.config}/waybar/style.css" "$root/$label/live/waybar-style.css"
+    copy_if_exists "${XDG_CONFIG_HOME:-$HOME/.config}/waybar/theme.css" "$root/$label/live/waybar-theme.css"
+    copy_if_exists "${XDG_DATA_HOME:-$HOME/.local/share}/waybar/modules/custom-wbar.jsonc" "$root/$label/live/custom-wbar.jsonc"
+
+    hyprctl configerrors >"$root/$label/system/hyprctl-configerrors.txt" 2>&1 || true
+    systemctl --user status hyde-Hyprland-bar.service --no-pager >"$root/$label/system/waybar-service.txt" 2>&1 || true
+    pgrep -af 'waybar|waybar.py|nwg-dock-hyprland' >"$root/$label/system/processes.txt" 2>&1 || true
+}
+
+set_layout() {
+    local target="$1"
+    require_graphical_session
+    if ! layout_exists "$target"; then
+        echo "Waybar layout not found: $target" >&2
+        echo "Available layouts:" >&2
+        list_layouts >&2
+        exit 1
+    fi
+    if is_blocked_layout "$target" && [[ "${MAD_WAYBAR_SAFE_ALLOW_BLOCKED:-0}" != "1" ]]; then
+        echo "Blocked Waybar layout: $target" >&2
+        echo "Reason: this layout destabilized the current Waybar session." >&2
+        echo "To recover: mad-waybar-safe recover" >&2
+        exit 3
+    fi
+
+    local before root
+    before="$(current_layout)"
+    root="$(make_run_root "$target")"
+    mkdir -p "$root/logs"
+    {
+        printf 'started_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'before_layout=%s\n' "${before:-unknown}"
+        printf 'target_layout=%s\n' "$target"
+    } >"$root/summary.env"
+
+    snapshot_state "$root" before
+    hyde-shell waybar --set "$target" --update >"$root/logs/hyde-waybar-set.log" 2>&1
+    systemctl --user restart hyde-Hyprland-bar.service >"$root/logs/waybar-restart.log" 2>&1
+    snapshot_state "$root" after
+    journalctl --user -u hyde-Hyprland-bar.service -b -n 120 --no-pager >"$root/logs/waybar-journal-tail.txt" 2>&1 || true
+    {
+        printf 'finished_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'after_layout=%s\n' "$(current_layout)"
+        printf 'log_root=%s\n' "$root"
+    } >>"$root/summary.env"
+
+    echo "Waybar layout switched: ${before:-unknown} -> $(current_layout)"
+    echo "Evidence: $root"
+}
+
+select_layout() {
+    require_graphical_session
+    local selected
+    selected="$(list_layouts | rofi -dmenu -i -p 'Waybar Layout')" || exit 0
+    [[ -n "$selected" ]] || exit 0
+    set_layout "$selected"
+}
+
+relative_layout() {
+    local direction="$1"
+    local current target count index next_index
+    mapfile -t layouts < <(list_layouts)
+    current="$(current_layout)"
+    count="${#layouts[@]}"
+    [[ "$count" -gt 0 ]] || exit 1
+    index=0
+    for i in "${!layouts[@]}"; do
+        if [[ "${layouts[$i]}" == "$current" ]]; then
+            index="$i"
+            break
+        fi
+    done
+    if [[ "$direction" == "next" ]]; then
+        next_index=$(((index + 1) % count))
+    else
+        next_index=$(((index + count - 1) % count))
+    fi
+    target="${layouts[$next_index]}"
+    set_layout "$target"
+}
+
+recover_layout() {
+    set_layout "$known_good"
+}
+
+notify_current() {
+    local current
+    current="$(current_layout)"
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "Waybar layout" "${current:-unknown}"
+    else
+        printf '%s\n' "${current:-unknown}"
+    fi
+}
+
+case "${1:-}" in
+    current)
+        current_layout
+        ;;
+    list)
+        list_layouts "${2:-}"
+        ;;
+    blocked)
+        list_blocked_layouts
+        ;;
+    select)
+        select_layout
+        ;;
+    set)
+        shift
+        [[ $# -gt 0 ]] || { usage; exit 1; }
+        set_layout "$*"
+        ;;
+    next)
+        relative_layout next
+        ;;
+    previous|prev)
+        relative_layout previous
+        ;;
+    recover)
+        recover_layout
+        ;;
+    notify-current)
+        notify_current
+        ;;
+    -h|--help|help|'')
+        usage
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

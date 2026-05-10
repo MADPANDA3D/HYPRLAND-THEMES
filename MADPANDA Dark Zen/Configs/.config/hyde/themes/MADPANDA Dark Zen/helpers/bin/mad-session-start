@@ -1,0 +1,268 @@
+#!/usr/bin/env bash
+set -u
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+helper_bin="${XDG_BIN_HOME:-$HOME/.local/bin}"
+rgb_helper="${MAD_RGB_THEME_BIN:-$(command -v mad-rgb-theme 2>/dev/null || printf '%s/mad-rgb-theme' "$helper_bin")}"
+dock_helper="${MAD_DOCK_ALL_MONITORS_BIN:-$(command -v mad-dock-all-monitors 2>/dev/null || printf '%s/mad-dock-all-monitors' "$helper_bin")}"
+sound_helper="${MAD_THEME_SOUND_BIN:-$(command -v mad-theme-sound 2>/dev/null || printf '%s/mad-theme-sound' "$helper_bin")}"
+eww_bar_helper="${MAD_EWW_BAR_BIN:-$(command -v mad-eww-bar 2>/dev/null || printf '%s/mad-eww-bar' "$helper_bin")}"
+bar_provider_helper="${MAD_BAR_PROVIDER_BIN:-$(command -v mad-bar-provider 2>/dev/null || printf '%s/mad-bar-provider' "$helper_bin")}"
+log_base="${MAD_SESSION_START_LOG_BASE:-${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/runs}"
+log_root="${MAD_SESSION_START_LOG_ROOT:-$log_base/mad-session-start-$(date +%Y%m%dT%H%M%S%z)}"
+log_file="$log_root/session-start.log"
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+log() {
+    mkdir -p "$log_root"
+    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*" >>"$log_file"
+}
+
+json_value() {
+    local manifest="$1"
+    local expr="$2"
+    jq -r "$expr // empty" "$manifest" 2>/dev/null
+}
+
+json_array_lines() {
+    local manifest="$1"
+    local expr="$2"
+    jq -r "$expr // empty | .[]?" "$manifest" 2>/dev/null
+}
+
+selected_bar_provider() {
+    local manifest="$1"
+    local selected=""
+    if [[ -x "$bar_provider_helper" ]]; then
+        selected="$("$bar_provider_helper" current 2>/dev/null || true)"
+    fi
+    if [[ "$selected" == "eww" || "$selected" == "waybar" ]]; then
+        printf '%s\n' "$selected"
+    else
+        json_value "$manifest" '.bar.defaultProvider // .bar.provider'
+    fi
+}
+
+integer_value_or_default() {
+    local value="$1"
+    local default="$2"
+    if [[ "$value" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' "$default"
+    fi
+}
+
+seconds_value_or_default() {
+    local value="$1"
+    local default="$2"
+    if [[ "$value" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' "$default"
+    fi
+}
+
+monitors_ready() {
+    local manifest="$1"
+    local expected monitor names
+    mapfile -t expected < <(json_array_lines "$manifest" '.sessionStart.expectedMonitors')
+    names="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.disabled == false) | .name' 2>/dev/null)" || return 1
+    [[ -n "$names" ]] || return 1
+    if ((${#expected[@]} == 0)); then
+        return 0
+    fi
+    for monitor in "${expected[@]}"; do
+        grep -Fxq "$monitor" <<<"$names" || return 1
+    done
+}
+
+wait_for_monitors() {
+    local manifest="$1"
+    local wait_seconds deadline
+    wait_seconds="$(integer_value_or_default "$(json_value "$manifest" '.sessionStart.monitorWaitSeconds')" "8")"
+    deadline=$((SECONDS + wait_seconds))
+    until monitors_ready "$manifest"; do
+        ((SECONDS >= deadline)) && { log "monitors=timeout"; return 0; }
+        sleep 0.5
+    done
+    log "monitors=ready"
+}
+
+desktop_ready() {
+    local layers
+    if layers="$(hyprctl layers -j 2>/dev/null)"; then
+        jq -e '
+            [
+                .. | objects
+                | select(
+                    ((.namespace? // "") | test("waybar|nwg-dock|hyde|gtk-layer-shell|eww|mad-testbar"; "i"))
+                    or ((.name? // "") | test("waybar|nwg-dock|hyde|gtk-layer-shell|eww|mad-testbar"; "i"))
+                )
+            ] | length > 0
+        ' <<<"$layers" >/dev/null 2>&1
+        return
+    fi
+
+    pgrep -x waybar >/dev/null 2>&1 || pgrep -x eww >/dev/null 2>&1 || pgrep -x nwg-dock-hyprland >/dev/null 2>&1
+}
+
+wait_for_desktop() {
+    local manifest="$1"
+    local wait_seconds deadline
+    wait_seconds="$(integer_value_or_default "$(json_value "$manifest" '.sessionStart.desktopWaitSeconds')" "6")"
+    if ((wait_seconds == 0)); then
+        log "desktop_wait=disabled"
+        return 0
+    fi
+    deadline=$((SECONDS + wait_seconds))
+    until desktop_ready; do
+        ((SECONDS >= deadline)) && { log "desktop=timeout"; return 0; }
+        sleep 0.5
+    done
+    log "desktop=ready"
+}
+
+apply_rgb_before_sound() {
+    local manifest="$1"
+    local lock_dir="${XDG_RUNTIME_DIR:-/tmp}/madpanda-session-start"
+    local lock_file="$lock_dir/rgb-apply.lock"
+    local wait_seconds
+    wait_seconds="$(integer_value_or_default "$(json_value "$manifest" '.sessionStart.rgbWaitSeconds')" "20")"
+    mkdir -p "$lock_dir"
+    if command -v flock >/dev/null 2>&1; then
+        exec 8>"$lock_file"
+        if ! flock -w "$wait_seconds" 8; then
+            log "rgb_apply=timeout wait_seconds=$wait_seconds"
+            return 0
+        fi
+    fi
+    log "rgb_service=foreground"
+    log "rgb_apply=start"
+    "$rgb_helper" apply "$theme" >>"$log_file" 2>&1 || { log "rgb_apply=failed"; return 0; }
+    log "rgb_apply=done"
+}
+
+ensure_dock() {
+    local watcher_started="0"
+    if pgrep -f '(^|/)mad-dock-all-monitors --watch' >/dev/null 2>&1; then
+        log "dock_watcher=already_running"
+    else
+        log "dock_watcher=start"
+        if ! setsid -f "$dock_helper" --watch >>"$log_file" 2>&1; then
+            "$dock_helper" --watch >>"$log_file" 2>&1 &
+        fi
+        watcher_started="1"
+    fi
+    if [[ "$watcher_started" == "1" ]]; then
+        log "dock_repair=watcher_initial_reconcile"
+        return 0
+    fi
+    "$dock_helper" >>"$log_file" 2>&1 || log "dock_repair=failed"
+}
+
+ensure_theme_bar() {
+    local manifest="$1"
+    local provider
+    provider="$(selected_bar_provider "$manifest")"
+    case "$provider" in
+        eww) ;;
+        waybar)
+            log "bar_provider=waybar"
+            return 0
+            ;;
+        *)
+            log "bar_provider=unknown value=$provider"
+            return 0
+            ;;
+    esac
+    if [[ ! -x "$eww_bar_helper" ]]; then
+        log "eww_bar=missing helper=$eww_bar_helper"
+        return 0
+    fi
+    log "eww_bar=start"
+    "$eww_bar_helper" start-session >>"$log_file" 2>&1 || { log "eww_bar=failed"; return 0; }
+    log "eww_bar=ready"
+}
+
+find_sink() {
+    local preference="$1"
+    local needle
+    [[ -n "$preference" ]] || return 1
+    needle="$(printf '%s' "$preference" | tr '[:upper:] ' '[:lower:]_')"
+    pactl list short sinks 2>/dev/null | awk -v needle="$needle" '
+        BEGIN { found = "" }
+        {
+            row = tolower($0)
+            if (index(row, needle) > 0) {
+                found = $2
+                print found
+                exit
+            }
+        }
+    '
+}
+
+wait_for_audio() {
+    local manifest="$1"
+    local preference wait_seconds deadline sink
+    preference="$(json_value "$manifest" '.sounds.outputPreference')"
+    wait_seconds="$(integer_value_or_default "$(json_value "$manifest" '.sessionStart.audioWaitSeconds')" "10")"
+    deadline=$((SECONDS + wait_seconds))
+    until pactl info >/dev/null 2>&1 && pactl list short sinks 2>/dev/null | grep -q .; do
+        ((SECONDS >= deadline)) && { log "audio=timeout"; return 0; }
+        sleep 0.5
+    done
+    if [[ -n "$preference" ]]; then
+        sink="$(find_sink "$preference" || true)"
+        if [[ -n "$sink" ]]; then
+            pactl set-default-sink "$sink" >>"$log_file" 2>&1 || true
+            log "audio_sink=$sink"
+        else
+            log "audio_sink_preference_missing=$preference"
+        fi
+    fi
+}
+
+wait_after_rgb() {
+    local manifest="$1"
+    local delay
+    delay="$(seconds_value_or_default "$(json_value "$manifest" '.sessionStart.postRgbSoundDelaySeconds')" "0.5")"
+    [[ "$delay" == "0" || "$delay" == "0.0" ]] && return 0
+    log "post_rgb_sound_delay=$delay"
+    sleep "$delay"
+}
+
+play_boot_sound() {
+    log "boot_sound=start"
+    "$sound_helper" boot "$theme" >>"$log_file" 2>&1 || log "boot_sound=failed"
+    log "boot_sound=done"
+}
+
+theme="$(current_theme)"
+if [[ -z "$theme" ]]; then
+    log "theme=missing"
+    exit 0
+fi
+manifest="$theme_root/$theme/theme.json"
+if [[ ! -r "$manifest" ]]; then
+    log "manifest=missing theme=$theme"
+    exit 0
+fi
+
+log "session_start=begin theme=$theme"
+wait_for_monitors "$manifest"
+ensure_dock
+ensure_theme_bar "$manifest"
+wait_for_desktop "$manifest"
+wait_for_audio "$manifest"
+apply_rgb_before_sound "$manifest"
+wait_after_rgb "$manifest"
+play_boot_sound
+log "session_start=done"

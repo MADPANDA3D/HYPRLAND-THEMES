@@ -1,0 +1,2140 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+default_repo_root() {
+    if [[ -n "${MAD_PROJECT_LINUX_REPO:-}" ]]; then
+        printf '%s\n' "$MAD_PROJECT_LINUX_REPO"
+        return
+    fi
+    local candidate="$PWD"
+    while [[ -n "$candidate" && "$candidate" != "/" ]]; do
+        if [[ -d "$candidate/themes" && -d "$candidate/scripts" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+        candidate="${candidate%/*}"
+    done
+    printf '\n'
+}
+
+repo_root="$(default_repo_root)"
+repo_available() {
+    [[ -d "$repo_root/themes" && -d "$repo_root/scripts" ]]
+}
+
+default_log_root() {
+    printf '%s/madpanda/runs\n' "${XDG_STATE_HOME:-$HOME/.local/state}"
+}
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+backup_root="${MAD_THEME_PACK_BACKUP_ROOT:-$(default_log_root)}"
+hyde_dist_root="${repo_root:+$repo_root/dist/hyde-themes}"
+pack_state_root="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/theme-pack"
+hyde_cache="${XDG_CACHE_HOME:-$HOME/.cache}/hyde"
+hyprlock_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock.conf"
+hyprlock_layout_dir="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock"
+dunst_override="$hyde_cache/wallbash/dunst.conf"
+dunst_wallbash_template="${XDG_DATA_HOME:-$HOME/.local/share}/wallbash/always/dunst.dcol"
+hypridle_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hypridle.conf"
+madpanda_hypr_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/conf/madpanda-usability.conf"
+hyprbars_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/conf/madpanda-hyprbars.conf"
+local_bin="${XDG_BIN_HOME:-$HOME/.local/bin}"
+sdk_config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/rgb"
+sdk_registry_file="$sdk_config_dir/sdk.env"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-theme-pack status ["Theme Name"]
+  mad-theme-pack apply "Theme Name" [--dry-run]
+  mad-theme-pack promote "Theme Name" [--dry-run]
+  mad-theme-pack build-hyde "Theme Name" [--dry-run]
+  mad-theme-pack deps ["Theme Name"] [--install]
+  mad-theme-pack terminal ["Theme Name"]
+  mad-theme-pack sddm "Theme Name" [--dry-run]
+  mad-theme-pack clear-overrides
+  mad-theme-pack deactivate ["Theme Name"]
+
+Dev/staging lives in this repo. Prod/stable lives in ~/.config/hyde/themes.
+The helpers never format disks, regenerate GRUB, or install Plymouth. SDDM is
+only switched by the explicit sddm command or the opt-in SDDM feature.
+EOF
+}
+
+current_theme() {
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_name_or_current() {
+    local requested="${1:-}"
+    if [[ -n "$requested" ]]; then
+        printf '%s\n' "$requested"
+    else
+        current_theme
+    fi
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' ' '-'
+}
+
+repo_theme_dir_for() {
+    local name="$1"
+    repo_available || return 0
+    printf '%s/themes/%s\n' "$repo_root" "$(theme_slug "$name")"
+}
+
+theme_source_dir_for() {
+    local name="$1"
+    local repo_dir
+    repo_dir="$(repo_theme_dir_for "$name")"
+    if [[ -n "$repo_dir" && -d "$repo_dir" ]]; then
+        printf '%s\n' "$repo_dir"
+    else
+        live_theme_dir_for "$name"
+    fi
+}
+
+repo_manifest_for() {
+    local name="$1"
+    printf '%s/theme.json\n' "$(theme_source_dir_for "$name")"
+}
+
+live_theme_dir_for() {
+    local name="$1"
+    printf '%s/%s\n' "$theme_root" "$name"
+}
+
+runtime_theme_dir_for() {
+    local name="$1"
+    local live_dir repo_dir
+    live_dir="$(live_theme_dir_for "$name")"
+    repo_dir="$(repo_theme_dir_for "$name")"
+    if [[ -r "$live_dir/theme.json" ]]; then
+        printf '%s\n' "$live_dir"
+    elif [[ -n "$repo_dir" ]]; then
+        printf '%s\n' "$repo_dir"
+    fi
+}
+
+runtime_manifest_for() {
+    local name="$1"
+    printf '%s/theme.json\n' "$(runtime_theme_dir_for "$name")"
+}
+
+hyde_package_dir_for() {
+    local name="$1"
+    repo_available || return 0
+    printf '%s/%s\n' "$hyde_dist_root" "$(theme_slug "$name")"
+}
+
+hyde_package_theme_dir_for() {
+    local name="$1"
+    local package_dir
+    package_dir="$(hyde_package_dir_for "$name")"
+    [[ -n "$package_dir" ]] || return 0
+    printf '%s/Configs/.config/hyde/themes/%s\n' "$package_dir" "$name"
+}
+
+require_manifest() {
+    local manifest="$1"
+    if [[ ! -r "$manifest" ]]; then
+        echo "Theme-pack manifest not found: $manifest" >&2
+        exit 1
+    fi
+    command -v jq >/dev/null 2>&1 || {
+        echo "jq is required for mad-theme-pack." >&2
+        exit 1
+    }
+}
+
+require_dev_repo() {
+    if ! repo_available; then
+        cat >&2 <<'EOF'
+This command needs the MADPANDA development repo.
+Run it from the repo root or set MAD_PROJECT_LINUX_REPO explicitly.
+Installed theme runtime commands such as status/apply/deactivate do not need the repo.
+EOF
+        exit 2
+    fi
+}
+
+json_get() {
+    local manifest="$1"
+    local expr="$2"
+    jq -r "$expr" "$manifest"
+}
+
+json_get_optional() {
+    local manifest="$1"
+    local expr="$2"
+    jq -r "$expr // empty" "$manifest"
+}
+
+feature_config_file_for() {
+    local name="$1"
+    printf '%s/madpanda/themes/%s/features.env\n' "${XDG_CONFIG_HOME:-$HOME/.config}" "$(theme_slug "$name")"
+}
+
+feature_default() {
+    case "$1" in
+        sddm|grub|hires_wallpapers|vertical_wallpapers|animated_wallpapers)
+            printf '0\n'
+            ;;
+        *)
+            printf '1\n'
+            ;;
+    esac
+}
+
+feature_enabled() {
+    local name="$1"
+    local feature="$2"
+    local config var value
+    config="$(feature_config_file_for "$name")"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="$(feature_default "$feature")"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+make_run_root() {
+    local slug="$1"
+    local ts
+    ts="$(date +%Y%m%dT%H%M%S%z)"
+    printf '%s/mad-theme-pack-%s-%s\n' "$backup_root" "$ts" "$slug"
+}
+
+backup_if_exists() {
+    local path="$1"
+    local run_root="$2"
+    local rel
+    [[ -e "$path" || -L "$path" ]] || return 0
+    rel="${path#/}"
+    mkdir -p "$run_root/backups/$(dirname "$rel")"
+    cp -a "$path" "$run_root/backups/$rel"
+}
+
+sddm_config_candidates() {
+    [[ -e /etc/sddm.conf ]] && printf '%s\n' /etc/sddm.conf
+    find /etc/sddm.conf.d -maxdepth 1 -type f -name '*.conf' -print 2>/dev/null | sort
+}
+
+sddm_current_from_file() {
+    local file="$1"
+    awk '
+        /^[[:space:]]*\[/ {
+            section = $0
+            gsub(/^[[:space:]]*\[/, "", section)
+            gsub(/\][[:space:]]*$/, "", section)
+            next
+        }
+        section == "Theme" && /^[[:space:]]*Current[[:space:]]*=/ {
+            value = $0
+            sub(/^[[:space:]]*Current[[:space:]]*=[[:space:]]*/, "", value)
+            gsub(/^[[:space:]]*"/, "", value)
+            gsub(/"[[:space:]]*$/, "", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
+
+detect_sddm_current() {
+    local conf current
+    while IFS= read -r conf; do
+        [[ -r "$conf" ]] || continue
+        current="$(sddm_current_from_file "$conf")"
+        if [[ -n "$current" ]]; then
+            printf '%s\t%s\n' "$conf" "$current"
+            return 0
+        fi
+    done < <(sddm_config_candidates)
+    return 1
+}
+
+set_sddm_current_config() {
+    local conf="$1"
+    local target="$2"
+    local run_root="$3"
+    local tmp
+    backup_if_exists "$conf" "$run_root"
+    sudo -n install -d -m 0755 "$(dirname "$conf")"
+    tmp="$(mktemp)"
+    if [[ ! -r "$conf" ]]; then
+        {
+            printf '[Theme]\n'
+            printf 'Current=%s\n' "$target"
+        } >"$tmp"
+        sudo -n install -m 0644 "$tmp" "$conf"
+        rm -f "$tmp"
+        return 0
+    fi
+    awk -v target="$target" '
+        BEGIN { in_theme = 0; saw_theme = 0; done = 0 }
+        /^[[:space:]]*\[/ {
+            if (in_theme == 1 && done == 0) {
+                print "Current=" target
+                done = 1
+            }
+            in_theme = ($0 ~ /^[[:space:]]*\[Theme\][[:space:]]*$/)
+            if (in_theme == 1) {
+                saw_theme = 1
+            }
+        }
+        in_theme == 1 && /^[[:space:]]*Current[[:space:]]*=/ {
+            if (done == 0) {
+                print "Current=" target
+                done = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (saw_theme == 0) {
+                print ""
+                print "[Theme]"
+                print "Current=" target
+            } else if (in_theme == 1 && done == 0) {
+                print "Current=" target
+            }
+        }
+    ' "$conf" >"$tmp"
+    sudo -n install -m 0644 "$tmp" "$conf"
+    rm -f "$tmp"
+}
+
+set_sddm_background_config() {
+    local conf="$1"
+    local background="$2"
+    local tmp
+    tmp="$(mktemp)"
+    awk -v background="$background" '
+        BEGIN { in_general = 0; saw_general = 0; done = 0 }
+        /^[[:space:]]*\[/ {
+            if (in_general == 1 && done == 0) {
+                print "Background=\"" background "\""
+                done = 1
+            }
+            in_general = ($0 ~ /^[[:space:]]*\[General\][[:space:]]*$/)
+            if (in_general == 1) {
+                saw_general = 1
+            }
+        }
+        in_general == 1 && /^[[:space:]]*Background[[:space:]]*=/ {
+            if (done == 0) {
+                print "Background=\"" background "\""
+                done = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (saw_general == 0) {
+                print ""
+                print "[General]"
+                print "Background=\"" background "\""
+            } else if (in_general == 1 && done == 0) {
+                print "Background=\"" background "\""
+            }
+        }
+    ' "$conf" >"$tmp"
+    sudo -n install -m 0644 "$tmp" "$conf"
+    rm -f "$tmp"
+}
+
+sddm_background_selection_for() {
+    local name="$1"
+    local manifest="$2"
+    local live_dir="$3"
+    local wallpapers active stem candidate
+
+    wallpapers="$live_dir/wallpapers"
+    active="$(json_get "$manifest" '.wallpapers.active')"
+    stem="${active%.*}"
+
+    if feature_enabled "$name" animated_wallpapers; then
+        if feature_enabled "$name" hires_wallpapers; then
+            candidate="$wallpapers/animated/hires/landscape/$stem.gif"
+            if [[ -r "$candidate" ]]; then
+                printf '%s\t%s\n' "$candidate" "backgrounds/dark-zen-login.gif"
+                return 0
+            fi
+        fi
+        candidate="$wallpapers/animated/landscape/$stem.gif"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\t%s\n' "$candidate" "backgrounds/dark-zen-login.gif"
+            return 0
+        fi
+    fi
+
+    if feature_enabled "$name" hires_wallpapers; then
+        candidate="$wallpapers/hires/landscape/$active"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\t%s\n' "$candidate" "backgrounds/dark-zen-login.png"
+            return 0
+        fi
+    fi
+
+    candidate="$wallpapers/$active"
+    if [[ -r "$candidate" ]]; then
+        printf '%s\t%s\n' "$candidate" "backgrounds/dark-zen-login.png"
+        return 0
+    fi
+
+    return 1
+}
+
+sddm_available() {
+    command -v sddm >/dev/null 2>&1 && return 0
+    command -v sddm-greeter >/dev/null 2>&1 && return 0
+    systemctl list-unit-files sddm.service >/dev/null 2>&1 && return 0
+    pacman -Q sddm >/dev/null 2>&1 && return 0
+    return 1
+}
+
+sddm_theme_source_dir_for() {
+    local manifest="$1"
+    local source_dir="$2"
+    local live_dir="$3"
+    local rel
+    rel="$(json_get_optional "$manifest" '.sddm.themeDir')"
+    if [[ -n "$rel" && -d "$source_dir/$rel" ]]; then
+        printf '%s\n' "$source_dir/$rel"
+    elif [[ -n "$rel" && -d "$live_dir/$rel" ]]; then
+        printf '%s\n' "$live_dir/$rel"
+    fi
+}
+
+sddm_state_file_for() {
+    local name="$1"
+    printf '%s/sddm/%s.env\n' "$pack_state_root" "$(theme_slug "$name")"
+}
+
+write_sddm_state_if_needed() {
+    local name="$1"
+    local sddm_name="$2"
+    local conf="$3"
+    local current_theme="$4"
+    local created_config="$5"
+    local state_file previous_current previous_had_current fallback
+
+    state_file="$(sddm_state_file_for "$name")"
+    [[ -r "$state_file" ]] && return 0
+
+    previous_current="$current_theme"
+    previous_had_current="0"
+    [[ -n "$previous_current" ]] && previous_had_current="1"
+
+    if [[ "$current_theme" == "$sddm_name" && "${MAD_THEME_PACK_REPAIR_SDDM_STATE:-0}" == "1" ]]; then
+        fallback="$(json_get_optional "$(runtime_manifest_for "$name")" '.sddm.sourceTheme')"
+        if [[ -n "$fallback" && "$fallback" != "$sddm_name" ]]; then
+            previous_current="$fallback"
+            previous_had_current="1"
+        fi
+    fi
+
+    mkdir -p "$(dirname "$state_file")"
+    {
+        printf 'MAD_SDDM_OWNER=%q\n' "$name"
+        printf 'MAD_SDDM_THEME=%q\n' "$sddm_name"
+        printf 'MAD_SDDM_CONFIG=%q\n' "$conf"
+        printf 'MAD_SDDM_PREVIOUS_CURRENT=%q\n' "$previous_current"
+        printf 'MAD_SDDM_PREVIOUS_HAD_CURRENT=%q\n' "$previous_had_current"
+        printf 'MAD_SDDM_CREATED_CONFIG=%q\n' "$created_config"
+    } >"$state_file"
+}
+
+unset_sddm_current_config() {
+    local conf="$1"
+    local tmp
+    [[ -r "$conf" ]] || return 0
+    tmp="$(mktemp)"
+    awk '
+        BEGIN { in_theme = 0 }
+        /^[[:space:]]*\[/ {
+            in_theme = ($0 ~ /^[[:space:]]*\[Theme\][[:space:]]*$/)
+        }
+        in_theme == 1 && /^[[:space:]]*Current[[:space:]]*=/ { next }
+        { print }
+    ' "$conf" >"$tmp"
+    sudo -n install -m 0644 "$tmp" "$conf"
+    rm -f "$tmp"
+}
+
+restore_sddm_if_owned() {
+    local name="$1"
+    local run_root="$2"
+    local state_file detected current_conf current_theme
+    local MAD_SDDM_OWNER="" MAD_SDDM_THEME="" MAD_SDDM_CONFIG=""
+    local MAD_SDDM_PREVIOUS_CURRENT="" MAD_SDDM_PREVIOUS_HAD_CURRENT="0" MAD_SDDM_CREATED_CONFIG="0"
+
+    state_file="$(sddm_state_file_for "$name")"
+    [[ -r "$state_file" ]] || return 0
+    # shellcheck disable=SC1090
+    . "$state_file"
+    [[ "$MAD_SDDM_OWNER" == "$name" ]] || return 0
+    sudo_available || {
+        printf 'Skipping SDDM restore: sudo -n is unavailable.\n' >&2
+        return 1
+    }
+
+    detected="$(detect_sddm_current || true)"
+    current_conf="${detected%%$'\t'*}"
+    current_theme="${detected#*$'\t'}"
+    if [[ -n "$detected" && "$current_theme" != "$MAD_SDDM_THEME" ]]; then
+        printf 'Skipping SDDM restore: current theme is %s, not %s.\n' "$current_theme" "$MAD_SDDM_THEME" >&2
+        return 0
+    fi
+
+    mkdir -p "$run_root/logs"
+    if [[ "$MAD_SDDM_CREATED_CONFIG" == "1" ]]; then
+        backup_if_exists "$MAD_SDDM_CONFIG" "$run_root"
+        sudo -n rm -f "$MAD_SDDM_CONFIG"
+        printf 'Restored SDDM by removing Dark Zen-created config: %s\n' "$MAD_SDDM_CONFIG"
+    elif [[ -r "$MAD_SDDM_CONFIG" ]]; then
+        backup_if_exists "$MAD_SDDM_CONFIG" "$run_root"
+        if [[ "$MAD_SDDM_PREVIOUS_HAD_CURRENT" == "1" && -n "$MAD_SDDM_PREVIOUS_CURRENT" ]]; then
+            set_sddm_current_config "$MAD_SDDM_CONFIG" "$MAD_SDDM_PREVIOUS_CURRENT" "$run_root"
+            printf 'Restored SDDM Current=%s in %s\n' "$MAD_SDDM_PREVIOUS_CURRENT" "$MAD_SDDM_CONFIG"
+        else
+            unset_sddm_current_config "$MAD_SDDM_CONFIG"
+            printf 'Restored SDDM by removing Dark Zen Current= from %s\n' "$MAD_SDDM_CONFIG"
+        fi
+    fi
+
+    {
+        printf 'owner=%s\n' "$MAD_SDDM_OWNER"
+        printf 'theme=%s\n' "$MAD_SDDM_THEME"
+        printf 'config=%s\n' "$MAD_SDDM_CONFIG"
+        printf 'restored_current=%s\n' "$MAD_SDDM_PREVIOUS_CURRENT"
+        printf 'created_config=%s\n' "$MAD_SDDM_CREATED_CONFIG"
+    } >"$run_root/logs/sddm-restore.env"
+    rm -f "$state_file"
+}
+
+install_sddm_theme() {
+    local name="$1"
+    local dry_run="$2"
+    local run_root="${3:-}"
+    local manifest live_dir source_dir slug sddm_name detected conf current_theme
+    local theme_source_dir sddm_dir evidence created_config background_selection background_source background_target
+
+    manifest="$(runtime_manifest_for "$name")"
+    live_dir="$(live_theme_dir_for "$name")"
+    source_dir="$(runtime_theme_dir_for "$name")"
+    slug="$(theme_slug "$name")"
+    [[ -n "$run_root" ]] || run_root="$(make_run_root "$slug-sddm")"
+    require_manifest "$manifest"
+
+    sddm_name="$(json_get "$manifest" '.sddm.themeName')"
+    theme_source_dir="$(sddm_theme_source_dir_for "$manifest" "$source_dir" "$live_dir")"
+    detected="$(detect_sddm_current || true)"
+    if [[ -n "$detected" ]]; then
+        conf="${detected%%$'\t'*}"
+        current_theme="${detected#*$'\t'}"
+        created_config="0"
+    else
+        conf="/etc/sddm.conf.d/90-madpanda-${slug}.conf"
+        current_theme=""
+        created_config="1"
+    fi
+    sddm_dir="/usr/share/sddm/themes/$sddm_name"
+    background_selection="$(sddm_background_selection_for "$name" "$manifest" "$live_dir" || true)"
+    if [[ -n "$background_selection" ]]; then
+        IFS=$'\t' read -r background_source background_target <<<"$background_selection"
+    fi
+
+    printf 'Mode: %s\n' "$([[ "$dry_run" == "1" ]] && printf dry-run || printf sddm)"
+    printf 'Theme: %s\n' "$name"
+    printf 'SDDM available: %s\n' "$(sddm_available && printf yes || printf no)"
+    printf 'Detected SDDM config: %s\n' "$conf"
+    printf 'Detected SDDM current: %s\n' "${current_theme:-none}"
+    printf 'Bundled SDDM source: %s\n' "${theme_source_dir:-missing}"
+    printf 'Wrapper SDDM theme: %s\n' "$sddm_name"
+    printf 'Selected SDDM background: %s -> %s\n' "${background_source:-missing}" "${background_target:-missing}"
+    printf 'Evidence root: %s\n' "$run_root"
+    printf 'Will install the bundled Dark Zen SDDM theme and set SDDM Current.\n'
+
+    [[ -n "$sddm_name" ]] || {
+        printf 'Missing .sddm.themeName in %s\n' "$manifest" >&2
+        return 1
+    }
+    sddm_available || {
+        printf 'SDDM is not installed or not available on this machine; SDDM theme activation skipped.\n' >&2
+        return 1
+    }
+    [[ -n "$theme_source_dir" && -d "$theme_source_dir" ]] || {
+        printf 'Bundled SDDM theme source not found for %s\n' "$name" >&2
+        return 1
+    }
+    [[ -r "$theme_source_dir/theme.conf" && -r "$theme_source_dir/Main.qml" ]] || {
+        printf 'Bundled SDDM theme is incomplete: %s\n' "$theme_source_dir" >&2
+        return 1
+    }
+    [[ -n "${background_source:-}" && -r "$background_source" && -n "${background_target:-}" ]] || {
+        printf 'SDDM background source not found for %s\n' "$name" >&2
+        return 1
+    }
+
+    [[ "$dry_run" == "1" ]] && return 0
+
+    sudo_available || {
+        printf 'Skipping SDDM wrapper install: sudo -n is unavailable.\n' >&2
+        return 1
+    }
+
+    mkdir -p "$run_root/logs"
+    backup_if_exists "$conf" "$run_root"
+    write_sddm_state_if_needed "$name" "$sddm_name" "$conf" "$current_theme" "$created_config"
+    if [[ -d "$sddm_dir" ]]; then
+        mkdir -p "$run_root/backups/usr/share/sddm/themes"
+        sudo -n cp -a "$sddm_dir" "$run_root/backups/usr/share/sddm/themes/${sddm_name}"
+    fi
+
+    sudo -n install -d -m 0755 "$sddm_dir"
+    sudo -n rsync -a --delete "$theme_source_dir/" "$sddm_dir/"
+    sudo -n install -d -m 0755 "$sddm_dir/backgrounds"
+    sudo -n install -m 0644 "$background_source" "$sddm_dir/$background_target"
+    set_sddm_background_config "$sddm_dir/theme.conf" "$background_target"
+    set_sddm_current_config "$conf" "$sddm_name" "$run_root"
+
+    evidence="$run_root/logs/sddm-wrapper.env"
+    {
+        printf 'config=%s\n' "$conf"
+        printf 'previous_current=%s\n' "${current_theme:-}"
+        printf 'bundled_source=%s\n' "$theme_source_dir"
+        printf 'target_theme=%s\n' "$sddm_name"
+        printf 'created_config=%s\n' "$created_config"
+        printf 'background_source=%s\n' "$background_source"
+        printf 'background_target=%s\n' "$background_target"
+    } >"$evidence"
+    printf 'Installed bundled Dark Zen SDDM theme. Evidence: %s\n' "$run_root"
+}
+
+sudo_available() {
+    command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1
+}
+
+have_any_command() {
+    local group="$1"
+    local cmd
+    local -a command_list=()
+    local IFS=','
+    read -ra command_list <<<"$group"
+    for cmd in "${command_list[@]}"; do
+        if command -v "$cmd" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+dependency_rows() {
+    cat <<'EOF'
+manifest JSON|jq|jq|required for theme manifests
+HyDE shell|hyde-shell|HyDE install|required for HyDE wallbash/regeneration
+HyDE import CLI|hydectl|HyDE install|optional for importing packaged themes
+Hyprland control|hyprctl|hyprland|required for window/dock/workspace checks
+RGB control|OpenRGB,openrgb|openrgb|optional RGB automation
+sound playback|mpg123,mpv,ffplay,pw-play,paplay,canberra-gtk-play|mpg123|optional event sounds
+Dunst notifications|dunst|dunst|optional themed notifications
+notification test|notify-send|libnotify|optional notification testing
+screenshot helpers|grim,jq,wl-copy|grim jq wl-clipboard|required for screenshot helpers
+synthetic close burst|python3|python|optional synthetic tile close animation
+image processing|magick,convert|imagemagick|optional avatar normalization
+lock screen|hyprlock|hyprlock|optional lock layout
+idle hooks|hypridle|hypridle|optional lock/unlock hooks
+wallpaper daemon|awww|awww|optional wallpaper handling
+Eww bar|eww,socat|eww socat|optional Dark Zen Eww bar
+caffeine idle inhibitor|systemd-inhibit|systemd|optional Eww caffeine/autolock toggle
+SDDM login manager|sddm,sddm-greeter|sddm|optional SDDM login theme activation
+tree sync|rsync|rsync|required for promote/build
+EOF
+}
+
+print_dependency_report() {
+    local missing_file="${1:-}"
+    local name commands packages note status
+    local -a missing_packages=()
+
+    while IFS='|' read -r name commands packages note; do
+        [[ -n "$name" ]] || continue
+        if have_any_command "$commands"; then
+            status="ok"
+        else
+            status="missing"
+            [[ -n "$packages" && "$packages" != "HyDE install" ]] && missing_packages+=("$packages")
+        fi
+        printf '  %-24s %-8s %s (%s)\n' "$name" "$status" "$commands" "$note"
+    done < <(dependency_rows)
+
+    if [[ -n "$missing_file" ]]; then
+        printf '%s\n' "${missing_packages[@]}" | awk 'NF && !seen[$0]++' >"$missing_file"
+    fi
+}
+
+install_missing_dependencies() {
+    local missing_file="$1"
+    local -a packages=()
+
+    [[ -s "$missing_file" ]] || {
+        printf 'No installable missing dependencies detected.\n'
+        return 0
+    }
+    mapfile -t packages <"$missing_file"
+    ((${#packages[@]} > 0)) || {
+        printf 'No installable missing dependencies detected.\n'
+        return 0
+    }
+
+    printf 'Missing packages:\n'
+    printf '  %s\n' "${packages[@]}"
+    printf 'Install these now with pacman/yay? [y/N] '
+    read -r answer
+    case "$answer" in
+        y|Y|yes|YES)
+            ;;
+        *)
+            printf 'Install skipped. Missing-feature adapters will no-op where possible.\n'
+            return 0
+            ;;
+    esac
+
+    if command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed "${packages[@]}"
+    elif command -v yay >/dev/null 2>&1; then
+        yay -S --needed "${packages[@]}"
+    else
+        printf 'Neither pacman nor yay is available; install skipped.\n' >&2
+        return 1
+    fi
+}
+
+deps_theme() {
+    local install="${1:-0}"
+    local tmp
+
+    tmp="$(mktemp)"
+    printf 'Dependency check:\n'
+    print_dependency_report "$tmp"
+    if [[ "$install" == "1" ]]; then
+        install_missing_dependencies "$tmp"
+    fi
+    rm -f "$tmp"
+}
+
+terminal_images() {
+    local live_dir="$1"
+    local stickers="$live_dir/terminal/stickers"
+    if [[ -d "$stickers" ]]; then
+        find -L "$stickers" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) | sort
+    fi
+}
+
+pick_terminal_image() {
+    local live_dir="$1"
+    mapfile -t images < <(terminal_images "$live_dir" | awk '!seen[$0]++')
+    if ((${#images[@]} == 0)); then
+        return 1
+    fi
+    printf '%s\n' "${images[$((RANDOM % ${#images[@]}))]}"
+}
+
+terminal_supports_images() {
+    case "${TERM_PROGRAM:-}" in
+        kitty|konsole|WezTerm|wezterm|ghostty)
+            return 0
+            ;;
+        vscode|code|codium)
+            return 0
+            ;;
+    esac
+    [[ "${TERM:-}" == xterm-kitty* ]]
+}
+
+pack_backup_once() {
+    local path="$1"
+    local label="$2"
+    local dst="$pack_state_root/originals/$label"
+    [[ -e "$dst" || -L "$dst" ]] && return 0
+    [[ -e "$path" || -L "$path" ]] || return 0
+    mkdir -p "$(dirname "$dst")"
+    cp -a "$path" "$dst"
+}
+
+pack_restore_backup() {
+    local path="$1"
+    local label="$2"
+    local src="$pack_state_root/originals/$label"
+    if [[ -e "$src" || -L "$src" ]]; then
+        mkdir -p "$(dirname "$path")"
+        cp -a "$src" "$path"
+    else
+        rm -f "$path"
+    fi
+}
+
+save_hyprlock_layout_once() {
+    local dst="$pack_state_root/originals/hyprlock-layout.path"
+    [[ -r "$dst" ]] && return 0
+    mkdir -p "$(dirname "$dst")"
+    if [[ -r "$hyprlock_conf" ]]; then
+        sed -n 's/^\$LAYOUT_PATH=//p' "$hyprlock_conf" | tail -n 1 >"$dst"
+    fi
+    if [[ ! -s "$dst" ]]; then
+        printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock/HyDE.conf" >"$dst"
+    fi
+}
+
+set_hyprlock_layout() {
+    local layout_path="$1"
+    local run_root="$2"
+    local tmp
+
+    [[ -r "$hyprlock_conf" ]] || return 0
+    backup_if_exists "$hyprlock_conf" "$run_root"
+    tmp="$(mktemp)"
+    awk -v layout="$layout_path" '
+        BEGIN { done = 0 }
+        /^\$LAYOUT_PATH=/ && done == 0 {
+            print "$LAYOUT_PATH=" layout
+            done = 1
+            next
+        }
+        { print }
+        END {
+            if (done == 0) {
+                print "$LAYOUT_PATH=" layout
+            }
+        }
+    ' "$hyprlock_conf" >"$tmp"
+    install -m 0644 "$tmp" "$hyprlock_conf"
+    rm -f "$tmp"
+}
+
+make_square_avatar() {
+    local source="$1"
+    local target="$2"
+    mkdir -p "$(dirname "$target")"
+    if command -v magick >/dev/null 2>&1; then
+        magick "$source" -background none -resize '512x512>' -gravity center -extent 512x512 "$target"
+    elif command -v convert >/dev/null 2>&1; then
+        convert "$source" -background none -resize '512x512>' -gravity center -extent 512x512 "$target"
+    else
+        install -m 0644 "$source" "$target"
+    fi
+}
+
+install_accounts_avatar() {
+    local avatar="$1"
+    local run_root="$2"
+    local account_user="${MAD_THEME_ACCOUNT_USER:-${USER:-$(id -un)}}"
+    local accounts_file="$run_root/$account_user.accountsservice"
+
+    if sudo_available; then
+        {
+            printf '[User]\n'
+            printf 'Icon=/var/lib/AccountsService/icons/%s\n' "$account_user"
+        } >"$accounts_file"
+        sudo -n install -d -m 0755 /var/lib/AccountsService/icons /var/lib/AccountsService/users
+        sudo -n install -m 0644 "$avatar" "/var/lib/AccountsService/icons/$account_user"
+        sudo -n install -m 0644 "$accounts_file" "/var/lib/AccountsService/users/$account_user"
+    else
+        printf 'Skipping AccountsService avatar install: sudo -n is unavailable.\n' >&2
+    fi
+}
+
+restart_dunst_from_wallbash() {
+    local run_root="$1"
+    if command -v hyde-shell >/dev/null 2>&1; then
+        hyde-shell wallbash dunst >"$run_root/logs/hyde-wallbash-dunst.log" 2>&1 || {
+            printf 'Dunst regeneration failed. See %s/logs/hyde-wallbash-dunst.log\n' "$run_root" >&2
+            return 1
+        }
+        if command -v dunst >/dev/null 2>&1 && ! pgrep -x dunst >/dev/null 2>&1; then
+            dunst >/dev/null 2>&1 &
+        fi
+    elif command -v dunst >/dev/null 2>&1; then
+        killall dunst >/dev/null 2>&1 || true
+        dunst >/dev/null 2>&1 &
+    fi
+}
+
+render_dunst_style() {
+    local template="$1"
+    local notification_icon="$2"
+    local target="${3:-$dunst_override}"
+
+    mkdir -p "$(dirname "$target")"
+
+    if [[ -r "$template" ]]; then
+        awk -v icon="$notification_icon" '{ gsub(/__MAD_NOTIFICATION_ICON__/, icon); print }' "$template" >"$target"
+        return 0
+    fi
+
+    {
+        printf '[dark_zen_hyde_identity]\n'
+        printf 'appname = "^(HyDE Alert|HyDE Notify|MADPANDA|HyDE theme|Waybar layout)$"\n'
+        printf 'new_icon = "%s"\n' "$notification_icon"
+        printf '\n'
+        printf '[urgency_low]\n'
+        printf '    background = "#07090CF0"\n'
+        printf '    foreground = "#FFE6E6"\n'
+        printf '    frame_color = "#8F5757"\n'
+        printf '    highlight = "#EA0000"\n'
+        printf '    icon = "%s"\n' "$notification_icon"
+        printf '    timeout = 5\n'
+        printf '\n'
+        printf '[urgency_normal]\n'
+        printf '    background = "#050607F2"\n'
+        printf '    foreground = "#FFE6E6"\n'
+        printf '    frame_color = "#EA0000"\n'
+        printf '    highlight = "#FF3B1F"\n'
+        printf '    icon = "%s"\n' "$notification_icon"
+        printf '    timeout = 5\n'
+    } >"$target"
+}
+
+render_dunst_wallbash_template() {
+    local template="$1"
+    local notification_icon="$2"
+    local target="${3:-$dunst_wallbash_template}"
+    local rendered
+
+    mkdir -p "$(dirname "$target")"
+    rendered="$(mktemp)"
+    render_dunst_style "$template" "$notification_icon" "$rendered"
+    {
+        printf '%s\n\n' '${cacheDir}/wallbash/dunst.conf|${WALLBASH_SCRIPTS}/dunst.sh'
+        cat "$rendered"
+    } >"$target"
+    rm -f "$rendered"
+}
+
+install_dunst_identity() {
+    local notification_icon="$1"
+    local run_root="$2"
+    local dunst_style="${3:-}"
+
+    mkdir -p "$(dirname "$dunst_override")" "$(dirname "$dunst_wallbash_template")"
+    pack_backup_once "$dunst_override" "wallbash-dunst.conf"
+    pack_backup_once "$dunst_wallbash_template" "wallbash-dunst.dcol"
+    backup_if_exists "$dunst_override" "$run_root"
+    backup_if_exists "$dunst_wallbash_template" "$run_root"
+
+    render_dunst_wallbash_template "$dunst_style" "$notification_icon"
+    render_dunst_style "$dunst_style" "$notification_icon"
+    restart_dunst_from_wallbash "$run_root" || true
+}
+
+install_hyprlock_identity() {
+    local repo_layout="$1"
+    local live_avatar="$2"
+    local notification_icon="$3"
+    local run_root="$4"
+    local target_layout="$hyprlock_layout_dir/${repo_layout##*/}"
+    local tmp widget_placeholder
+
+    [[ -r "$repo_layout" ]] || return 0
+    mkdir -p "$hyprlock_layout_dir" "$pack_state_root/current"
+    backup_if_exists "$target_layout" "$run_root"
+    widget_placeholder="$pack_state_root/current/lock-widget-empty.png"
+    if command -v magick >/dev/null 2>&1; then
+        magick -size 1x1 xc:none "$widget_placeholder" >/dev/null 2>&1 || widget_placeholder="/dev/null"
+    else
+        widget_placeholder="/dev/null"
+    fi
+    tmp="$(mktemp)"
+    awk -v avatar="$live_avatar" -v widget="$widget_placeholder" -v notification="$notification_icon" '{
+        gsub(/__MAD_DARK_ZEN_LOCK_AVATAR__/, avatar)
+        gsub(/__MAD_NOTIFICATION_ICON__/, notification)
+        gsub(/__MAD_LOCK_WIDGET_PLACEHOLDER__/, widget)
+        print
+    }' "$repo_layout" >"$tmp"
+    install -m 0644 "$tmp" "$target_layout"
+    rm -f "$tmp"
+
+    save_hyprlock_layout_once
+    set_hyprlock_layout "$target_layout" "$run_root"
+}
+
+install_hyprlock_preview_layout() {
+    local repo_layout="$1"
+    local live_avatar="$2"
+    local notification_icon="$3"
+    local run_root="$4"
+    local target_layout="$hyprlock_layout_dir/${repo_layout##*/}"
+    local tmp widget_placeholder
+
+    [[ -r "$repo_layout" ]] || return 0
+    mkdir -p "$hyprlock_layout_dir" "$pack_state_root/current"
+    backup_if_exists "$target_layout" "$run_root"
+    widget_placeholder="$pack_state_root/current/lock-widget-empty.png"
+    if command -v magick >/dev/null 2>&1; then
+        magick -size 1x1 xc:none "$widget_placeholder" >/dev/null 2>&1 || widget_placeholder="/dev/null"
+    else
+        widget_placeholder="/dev/null"
+    fi
+    tmp="$(mktemp)"
+    awk -v avatar="$live_avatar" -v widget="$widget_placeholder" -v notification="$notification_icon" '{
+        gsub(/__MAD_DARK_ZEN_LOCK_AVATAR__/, avatar)
+        gsub(/__MAD_NOTIFICATION_ICON__/, notification)
+        gsub(/__MAD_LOCK_WIDGET_PLACEHOLDER__/, widget)
+        print
+    }' "$repo_layout" >"$tmp"
+    install -m 0644 "$tmp" "$target_layout"
+    rm -f "$tmp"
+}
+
+mark_identity_owner() {
+    local name="$1"
+    mkdir -p "$pack_state_root"
+    printf '%s\n' "$name" >"$pack_state_root/identity-owner"
+}
+
+clear_identity_overrides() {
+    local run_root="$1"
+    [[ -r "$pack_state_root/identity-owner" ]] || return 0
+    mkdir -p "$run_root/logs"
+
+    backup_if_exists "$HOME/.face.icon" "$run_root"
+    backup_if_exists "$hyde_cache/landing/profile.png" "$run_root"
+    backup_if_exists "$hyde_cache/landing/mpris.png" "$run_root"
+    backup_if_exists "$dunst_override" "$run_root"
+    backup_if_exists "$dunst_wallbash_template" "$run_root"
+    backup_if_exists "$hyprlock_conf" "$run_root"
+
+    pack_restore_backup "$HOME/.face.icon" "face.icon"
+    pack_restore_backup "$hyde_cache/landing/profile.png" "landing-profile.png"
+    pack_restore_backup "$hyde_cache/landing/mpris.png" "landing-mpris.png"
+    pack_restore_backup "$dunst_override" "wallbash-dunst.conf"
+    pack_restore_backup "$dunst_wallbash_template" "wallbash-dunst.dcol"
+
+    if [[ -r "$pack_state_root/originals/hyprlock-layout.path" ]]; then
+        set_hyprlock_layout "$(cat "$pack_state_root/originals/hyprlock-layout.path")" "$run_root"
+    fi
+
+    rm -f "$pack_state_root/identity-owner"
+    rm -f "$pack_state_root/current/lock-avatar.png" "$pack_state_root/current/notification-icon.png"
+    restart_dunst_from_wallbash "$run_root" || true
+    printf 'Cleared MADPANDA-managed identity overrides. Evidence: %s\n' "$run_root"
+}
+
+install_identity_assets() {
+    local manifest="$1"
+    local live_dir="$2"
+    local source_dir="$3"
+    local run_root="$4"
+    local lock_rel notification_rel hyde_logo_rel layout_rel preview_layout_rel transparent_layout_rel dunst_style_rel
+    local source_lock source_notification source_layout source_preview_layout source_transparent_layout source_dunst_style
+    local live_lock live_notification live_dunst_style avatar_512 layout_lock notification_alias
+
+    lock_rel="$(json_get_optional "$manifest" '.identity.lockAvatar')"
+    notification_rel="$(json_get_optional "$manifest" '.identity.notificationIcon')"
+    hyde_logo_rel="$(json_get_optional "$manifest" '.identity.hydeLogoReplacement')"
+    layout_rel="$(json_get_optional "$manifest" '.hyprlock.layout')"
+    preview_layout_rel="$(json_get_optional "$manifest" '.hyprlock.previewLayout')"
+    transparent_layout_rel="$(json_get_optional "$manifest" '.hyprlock.transparentLayout')"
+    dunst_style_rel="$(json_get_optional "$manifest" '.notifications.dunstStyle')"
+
+    if [[ -z "$lock_rel" && -z "$notification_rel" && -z "$hyde_logo_rel" ]]; then
+        clear_identity_overrides "$run_root"
+        return 0
+    fi
+
+    [[ -n "$notification_rel" ]] || notification_rel="$hyde_logo_rel"
+    [[ -n "$hyde_logo_rel" ]] || hyde_logo_rel="$notification_rel"
+
+    source_lock="$source_dir/$lock_rel"
+    source_notification="$source_dir/$notification_rel"
+    source_layout="$source_dir/$layout_rel"
+    source_preview_layout="$source_dir/$preview_layout_rel"
+    source_transparent_layout="$source_dir/$transparent_layout_rel"
+    source_dunst_style="$source_dir/$dunst_style_rel"
+    live_lock="$live_dir/$lock_rel"
+    live_notification="$live_dir/$notification_rel"
+    live_dunst_style="$live_dir/$dunst_style_rel"
+    avatar_512="$run_root/generated/lock-avatar-512.png"
+    layout_lock="$pack_state_root/current/lock-avatar.png"
+    notification_alias="$pack_state_root/current/notification-icon.png"
+
+    mkdir -p "$live_dir/identity" "$live_dir/notifications" "$hyde_cache/landing" "$run_root/generated" "$pack_state_root/current"
+
+    if [[ -n "$lock_rel" && -r "$source_lock" ]]; then
+        if [[ "$source_lock" != "$live_lock" ]]; then
+            backup_if_exists "$live_lock" "$run_root"
+            install -m 0644 "$source_lock" "$live_lock"
+        fi
+        ln -sfn "$live_lock" "$layout_lock"
+        make_square_avatar "$source_lock" "$avatar_512"
+
+        pack_backup_once "$HOME/.face.icon" "face.icon"
+        pack_backup_once "$hyde_cache/landing/profile.png" "landing-profile.png"
+        pack_backup_once "$hyde_cache/landing/mpris.png" "landing-mpris.png"
+        backup_if_exists "$HOME/.face.icon" "$run_root"
+        backup_if_exists "$hyde_cache/landing/profile.png" "$run_root"
+        backup_if_exists "$hyde_cache/landing/mpris.png" "$run_root"
+
+        install -m 0644 "$avatar_512" "$HOME/.face.icon"
+        install -m 0644 "$avatar_512" "$hyde_cache/landing/profile.png"
+        install -m 0644 "$avatar_512" "$hyde_cache/landing/mpris.png"
+        install -m 0644 "$avatar_512" "$live_dir/sddm/avatar.png"
+        install_accounts_avatar "$avatar_512" "$run_root"
+    fi
+
+    if [[ -n "$notification_rel" && -r "$source_notification" ]]; then
+        if [[ "$source_notification" != "$live_notification" ]]; then
+            backup_if_exists "$live_notification" "$run_root"
+            install -m 0644 "$source_notification" "$live_notification"
+        fi
+        ln -sfn "$live_notification" "$notification_alias"
+        if [[ -n "$dunst_style_rel" && -r "$source_dunst_style" ]]; then
+            if [[ "$source_dunst_style" != "$live_dunst_style" ]]; then
+                backup_if_exists "$live_dunst_style" "$run_root"
+                install -m 0644 "$source_dunst_style" "$live_dunst_style"
+            fi
+        fi
+        install_dunst_identity "$notification_alias" "$run_root" "$live_dunst_style"
+    fi
+
+    if [[ -n "$layout_rel" && -r "$source_layout" && -r "$layout_lock" ]]; then
+        install_hyprlock_identity "$source_layout" "$layout_lock" "$notification_alias" "$run_root"
+    fi
+    if [[ -n "$preview_layout_rel" && -r "$source_preview_layout" && -r "$layout_lock" ]]; then
+        install_hyprlock_preview_layout "$source_preview_layout" "$layout_lock" "$notification_alias" "$run_root"
+    fi
+    if [[ -n "$transparent_layout_rel" && -r "$source_transparent_layout" && -r "$layout_lock" ]]; then
+        install_hyprlock_preview_layout "$source_transparent_layout" "$layout_lock" "$notification_alias" "$run_root"
+    fi
+
+    mark_identity_owner "$(json_get "$manifest" '.name')"
+}
+
+required_hyde_theme_files() {
+    cat <<'EOF'
+hypr.theme
+kitty.theme
+rofi.theme
+waybar.theme
+theme.dcol
+rgb.theme
+kvantum/kvantum.theme
+kvantum/kvconfig.theme
+theme.json
+EOF
+}
+
+managed_theme_files() {
+    local dir="$1"
+    [[ -d "$dir" ]] || return 0
+    find "$dir" -type f \
+        ! -path '*/wallpapers.previous-*/*' \
+        ! -path '*/wallpapers.rejected-*/*' \
+        ! -name '.DS_Store' |
+        sed "s#^$dir/##" |
+        sort
+}
+
+theme_source_valid() {
+    local name="$1"
+    local manifest="$2"
+    local dev_dir="$3"
+    local missing="0"
+    local rel
+
+    require_manifest "$manifest"
+    jq -e --arg name "$name" '.name == $name and .base.desktop == "HyDE"' "$manifest" >/dev/null
+    while IFS= read -r rel; do
+        if [[ ! -r "$dev_dir/$rel" ]]; then
+            printf 'Missing required theme source file: %s\n' "$dev_dir/$rel" >&2
+            missing="1"
+        fi
+    done < <(required_hyde_theme_files)
+
+    [[ "$missing" == "0" ]]
+}
+
+compare_dev_prod() {
+    local dev_dir="$1"
+    local live_dir="$2"
+    local missing="0"
+    local changed="0"
+    local total="0"
+    local rel
+
+    if [[ ! -d "$live_dir" ]]; then
+        printf '  dev/prod parity: live theme missing\n'
+        return 0
+    fi
+
+    while IFS= read -r rel; do
+        ((total += 1))
+        if [[ ! -r "$live_dir/$rel" ]]; then
+            ((missing += 1))
+        elif ! cmp -s "$dev_dir/$rel" "$live_dir/$rel"; then
+            ((changed += 1))
+        fi
+    done < <(managed_theme_files "$dev_dir")
+
+    printf '  dev managed files: %s\n' "$total"
+    printf '  prod missing files: %s\n' "$missing"
+    printf '  prod changed files: %s\n' "$changed"
+    if ((missing == 0 && changed == 0)); then
+        printf '  dev/prod parity: clean\n'
+    else
+        printf '  dev/prod parity: drifted\n'
+    fi
+}
+
+write_package_readme() {
+    local readme="$1"
+    local name="$2"
+    local theme_dir_rel="Configs/.config/hyde/themes/$name"
+
+    cat >"$readme" <<EOF
+# $name
+
+MADPANDA Dark Zen is a HyDE theme package with a fan-made dark feudal Empire
+visual identity. The theme is open source and non-monetized.
+
+## Install
+
+\`\`\`bash
+hydectl theme import --name "$name" --url "\$(pwd)/Configs"
+\`\`\`
+
+Or run the guided installer from the packaged theme directory:
+
+\`\`\`bash
+~/.config/hyde/themes/$name/install.sh
+\`\`\`
+
+The HyDE-compatible theme files live under:
+
+\`\`\`text
+$theme_dir_rel
+\`\`\`
+
+MADPANDA helper features such as RGB, sounds, lock identity, notifications,
+terminal stickers, and tile-close effects are declared by \`theme.json\`.
+Helpers must skip unsupported features if a dependency is missing.
+EOF
+}
+
+theme_helper_names() {
+    cat <<'EOF'
+mad-theme-pack
+mad-theme-safe
+mad-theme-sound
+mad-session-start
+mad-lock-session
+mad-lock-tiles
+mad-lock-surfaces
+mad-lock-widgets
+mad-lock-wallpaper
+mad-lock-preview-widgets
+mad-rgb-theme
+mad-openrgb-sdkctl
+mad-rgb-system-clear
+mad-theme-runtime
+mad-theme-watcher
+mad-lock-greet
+mad-lock-quote
+mad-dock-all-monitors
+mad-waybar-safe
+mad-window-close
+mad-window-burst
+mad-display-gamma
+mad-screenshot-region
+mad-screenshot-active-window
+mad-screenshot-full
+mad-settings-menu
+mad-wallpaper-theme
+mad-theme-mode
+mad-bar-provider
+mad-caffeine
+mad-eww-bar
+mad-eww-testbar
+EOF
+}
+
+stage_helper_payload() {
+    local target_theme_dir="$1"
+    local helper source unit
+
+    [[ -d "$target_theme_dir" ]] || return 0
+    mkdir -p "$target_theme_dir/helpers/bin" "$target_theme_dir/helpers/systemd/user" "$target_theme_dir/helpers/systemd/system"
+    if repo_available; then
+        while IFS= read -r helper; do
+            source="$repo_root/scripts/$helper"
+            [[ -r "$source" ]] || continue
+            install -m 0755 "$source" "$target_theme_dir/helpers/bin/$helper"
+        done < <(theme_helper_names)
+    fi
+    if repo_available; then
+        for unit in \
+            "$repo_root/systemd/user/mad-openrgb-sdk.service" \
+            "$repo_root/systemd/user/mad-theme-watcher.service" \
+            "$repo_root/systemd/system/mad-rgb-system-clear@.service"; do
+            [[ -r "$unit" ]] || continue
+            case "$unit" in
+                */systemd/user/*)
+                    install -m 0644 "$unit" "$target_theme_dir/helpers/systemd/user/${unit##*/}"
+                    ;;
+                */systemd/system/*)
+                    install -m 0644 "$unit" "$target_theme_dir/helpers/systemd/system/${unit##*/}"
+                    ;;
+            esac
+        done
+    fi
+}
+
+build_hyde_package() {
+    local name="$1"
+    local dry_run="$2"
+    local manifest dev_dir package_dir package_theme_dir
+
+    require_dev_repo
+    manifest="$(repo_manifest_for "$name")"
+    dev_dir="$(repo_theme_dir_for "$name")"
+    package_dir="$(hyde_package_dir_for "$name")"
+    package_theme_dir="$(hyde_package_theme_dir_for "$name")"
+    theme_source_valid "$name" "$manifest" "$dev_dir"
+
+    printf 'Mode: %s\n' "$([[ "$dry_run" == "1" ]] && printf dry-run || printf build-hyde)"
+    printf 'Theme: %s\n' "$name"
+    printf 'Dev source: %s\n' "$dev_dir"
+    printf 'HyDE package: %s\n' "$package_dir"
+    printf 'HyDE theme path: %s\n' "$package_theme_dir"
+    printf 'Package excludes live runtime wallpaper cache and rejected/previous wallpaper archives.\n'
+
+    [[ "$dry_run" == "1" ]] && return 0
+
+    rm -rf "$package_dir/Config"
+    mkdir -p "$package_theme_dir"
+    rsync -a --delete \
+        --exclude 'wall.*' \
+        --exclude 'wallpapers.previous-*' \
+        --exclude 'wallpapers.rejected-*' \
+        "$dev_dir/" "$package_theme_dir/"
+    stage_helper_payload "$package_theme_dir"
+    write_package_readme "$package_dir/README.md" "$name"
+    printf 'Built HyDE-compatible package: %s\n' "$package_dir"
+}
+
+promote_theme() {
+    local name="$1"
+    local dry_run="$2"
+    local manifest dev_dir live_dir slug run_root
+
+    require_dev_repo
+    manifest="$(repo_manifest_for "$name")"
+    dev_dir="$(repo_theme_dir_for "$name")"
+    live_dir="$(live_theme_dir_for "$name")"
+    slug="$(theme_slug "$name")"
+    run_root="$(make_run_root "$slug-promote")"
+    theme_source_valid "$name" "$manifest" "$dev_dir"
+
+    printf 'Mode: %s\n' "$([[ "$dry_run" == "1" ]] && printf dry-run || printf promote)"
+    printf 'Theme: %s\n' "$name"
+    printf 'Dev source: %s\n' "$dev_dir"
+    printf 'Prod install: %s\n' "$live_dir"
+    printf 'Evidence root: %s\n' "$run_root"
+    printf 'Will back up prod, build the HyDE package, sync dev to prod, then run safe adapters.\n'
+    printf 'Will preserve live wall.* runtime cache files.\n'
+    printf 'Will remove prod-only rejected/previous wallpaper archive directories during sync.\n'
+    printf 'Will not format disks, regenerate GRUB, or install Plymouth.\n'
+    printf 'Will only switch SDDM when the opt-in SDDM feature is enabled.\n'
+    printf '\nDependency readiness:\n'
+    print_dependency_report ""
+
+    [[ "$dry_run" == "1" ]] && return 0
+
+    mkdir -p "$run_root/backups" "$run_root/logs" "$live_dir"
+    if [[ -d "$live_dir" ]]; then
+        cp -a "$live_dir" "$run_root/backups/live-theme"
+    fi
+    build_hyde_package "$name" "0" >"$run_root/logs/build-hyde.log" 2>&1
+    rsync -a --delete \
+        --exclude 'wall.*' \
+        "$dev_dir/" "$live_dir/"
+    stage_helper_payload "$live_dir"
+    find "$live_dir" -maxdepth 1 -type d \
+        \( -name 'wallpapers.previous-*' -o -name 'wallpapers.rejected-*' \) \
+        -exec rm -rf {} +
+    MAD_THEME_PACK_RUN_ROOT="$run_root/apply/adapters" apply_theme "$name" "0" >"$run_root/logs/apply.log" 2>&1
+    printf 'Promoted dev to prod. Evidence: %s\n' "$run_root"
+}
+
+status_theme() {
+    local name="$1"
+    local manifest dev_dir live_dir package_dir package_theme_dir
+    local detected sddm_conf sddm_current
+    manifest="$(runtime_manifest_for "$name")"
+    dev_dir="$(repo_theme_dir_for "$name")"
+    live_dir="$(live_theme_dir_for "$name")"
+    package_dir="$(hyde_package_dir_for "$name")"
+    package_theme_dir="$(hyde_package_theme_dir_for "$name")"
+    require_manifest "$manifest"
+
+    printf 'Theme: %s\n' "$name"
+    printf 'Current HyDE theme: %s\n' "$(current_theme)"
+    if repo_available && [[ -n "$dev_dir" ]]; then
+        printf 'Dev source: %s\n' "$dev_dir"
+    else
+        printf 'Dev source: inactive (run from repo or set MAD_PROJECT_LINUX_REPO)\n'
+    fi
+    printf 'Runtime manifest: %s\n' "$manifest"
+    printf 'Prod install: %s\n' "$live_dir"
+    if [[ -n "$package_dir" ]]; then
+        printf 'HyDE package: %s\n' "$package_dir"
+        [[ -d "$package_theme_dir" ]] && printf 'Package theme: present\n' || printf 'Package theme: missing\n'
+    else
+        printf 'HyDE package: inactive (dev repo not active)\n'
+    fi
+    printf 'SDDM target: %s\n' "$(json_get "$manifest" '.sddm.themeName')"
+    printf 'SDDM bundled theme: %s\n' "$(json_get_optional "$manifest" '.sddm.themeDir')"
+    detected="$(detect_sddm_current || true)"
+    if [[ -n "$detected" ]]; then
+        sddm_conf="${detected%%$'\t'*}"
+        sddm_current="${detected#*$'\t'}"
+        printf 'SDDM current: %s via %s\n' "$sddm_current" "$sddm_conf"
+    else
+        printf 'SDDM current: unknown\n'
+    fi
+    printf 'Workspace count: %s\n' "$(json_get "$manifest" '.workspaces.count')"
+    printf 'Lock avatar: %s\n' "$(json_get_optional "$manifest" '.identity.lockAvatar')"
+    printf 'Lock greet helper: %s\n' "$(json_get_optional "$manifest" '.hyprlock.greetHelper')"
+    printf 'Lock quotes: %s\n' "$(json_get_optional "$manifest" '.hyprlock.quotes')"
+    printf 'Notification icon: %s\n' "$(json_get_optional "$manifest" '.identity.notificationIcon')"
+    printf 'Dunst style: %s\n' "$(json_get_optional "$manifest" '.notifications.dunstStyle')"
+    printf 'Sounds: lock=%s unlock=%s boot=%s\n' \
+        "$(json_get_optional "$manifest" '.sounds.lock')" \
+        "$(json_get_optional "$manifest" '.sounds.unlock')" \
+        "$(json_get_optional "$manifest" '.sounds.boot')"
+    printf 'Tile close sound: %s\n' "$(json_get_optional "$manifest" '.sounds.tileClose')"
+    printf 'Tile close effect: enabled=%s mode=%s\n' \
+        "$(jq -r '.effects.tileClose.enabled | if . == true then "true" else "false" end' "$manifest" 2>/dev/null)" \
+        "$(json_get_optional "$manifest" '.effects.tileClose.mode')"
+    printf 'Safety: no disk format=%s, no GRUB regen=%s, explicit SDDM activation=%s\n' \
+        "$(json_get "$manifest" '.safety.noAutomaticDiskFormatting')" \
+        "$(json_get "$manifest" '.safety.noAutomaticGrubRegeneration')" \
+        "$(json_get "$manifest" '.sddm.activateAutomatically')"
+    if jq -e '.backupStorage.drives? | length > 0' "$manifest" >/dev/null 2>&1; then
+        printf '\nBackup mount targets:\n'
+        jq -r '.backupStorage.drives[] | "  " + .device + " -> " + .mount + " label=" + .label' "$manifest"
+    fi
+    printf '\nLive checks:\n'
+    [[ -d "$live_dir" ]] && printf '  live theme: present\n' || printf '  live theme: missing\n'
+    [[ -r "$live_dir/theme.json" ]] && printf '  live manifest: present\n' || printf '  live manifest: missing\n'
+    [[ -d "$live_dir/terminal/stickers" ]] && printf '  terminal stickers: present\n' || printf '  terminal stickers: missing\n'
+    [[ -d "$live_dir/identity" ]] && printf '  identity assets: present\n' || printf '  identity assets: missing\n'
+    [[ -d "$live_dir/sounds" ]] && printf '  sound assets: present\n' || printf '  sound assets: missing\n'
+    printf '\nDev/prod parity:\n'
+    if repo_available && [[ -n "$dev_dir" && -d "$dev_dir" ]]; then
+        compare_dev_prod "$dev_dir" "$live_dir"
+    else
+        printf '  dev/prod parity: skipped (dev repo not active)\n'
+    fi
+    printf '\nDependency readiness:\n'
+    print_dependency_report ""
+}
+
+install_theme_helpers() {
+    local run_root="$1"
+    local live_dir="${2:-}"
+    local helper repo_helper package_helper live_helper
+
+    mkdir -p "$local_bin"
+    while IFS= read -r helper; do
+        repo_helper=""
+        if repo_available; then
+            repo_helper="$repo_root/scripts/$helper"
+        fi
+        package_helper="$live_dir/helpers/bin/$helper"
+        live_helper="$local_bin/$helper"
+        if [[ -n "$repo_helper" && -r "$repo_helper" ]]; then
+            :
+        elif [[ -r "$package_helper" ]]; then
+            repo_helper="$package_helper"
+        else
+            continue
+        fi
+        backup_if_exists "$live_helper" "$run_root"
+        install -m 0755 "$repo_helper" "$live_helper"
+    done < <(theme_helper_names)
+}
+
+install_rgb_system_clear_service() {
+    local run_root="$1"
+    local live_dir="${2:-}"
+    local unit_source=""
+    local unit_dest="/etc/systemd/system/mad-rgb-system-clear@.service"
+    local old_unit_dest="/etc/systemd/system/mad-rgb-system-clear.service"
+    local helper_source=""
+    local helper_dest="/usr/local/bin/mad-rgb-system-clear"
+    local user_name="${MAD_THEME_ACCOUNT_USER:-${USER:-$(id -un)}}"
+
+    if repo_available; then
+        unit_source="$repo_root/systemd/system/mad-rgb-system-clear@.service"
+        helper_source="$repo_root/scripts/mad-rgb-system-clear"
+    fi
+    [[ -n "$unit_source" && -r "$unit_source" ]] || unit_source="$live_dir/helpers/systemd/system/mad-rgb-system-clear@.service"
+    [[ -n "$helper_source" && -r "$helper_source" ]] || helper_source="$live_dir/helpers/bin/mad-rgb-system-clear"
+    [[ -r "$unit_source" && -r "$helper_source" ]] || return 0
+    backup_if_exists "$unit_dest" "$run_root" || true
+    backup_if_exists "$helper_dest" "$run_root" || true
+    sudo -n systemctl disable --now mad-rgb-system-clear.service >/dev/null 2>&1 || true
+    sudo -n rm -f "$old_unit_dest" >/dev/null 2>&1 || true
+    if sudo -n install -D -m 0755 "$helper_source" "$helper_dest" \
+        && sudo -n install -D -m 0644 "$unit_source" "$unit_dest" \
+        && sudo -n systemctl daemon-reload \
+        && sudo -n systemctl enable --now "mad-rgb-system-clear@$user_name.service"; then
+        printf 'Installed root RGB shutdown fallback: %s for %s\n' "$unit_dest" "$user_name"
+    else
+        printf 'Skipping root RGB shutdown fallback: install or enable failed.\n' >&2
+    fi
+}
+
+install_theme_watcher_service() {
+    local run_root="$1"
+    local live_dir="${2:-}"
+    local unit_source=""
+    local unit_dest="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/mad-theme-watcher.service"
+
+    if repo_available; then
+        unit_source="$repo_root/systemd/user/mad-theme-watcher.service"
+    fi
+    [[ -n "$unit_source" && -r "$unit_source" ]] || unit_source="$live_dir/helpers/systemd/user/mad-theme-watcher.service"
+    [[ -r "$unit_source" ]] || return 0
+    mkdir -p "$(dirname "$unit_dest")"
+    backup_if_exists "$unit_dest" "$run_root"
+    install -m 0644 "$unit_source" "$unit_dest"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+        systemctl --user enable --now mad-theme-watcher.service >/dev/null 2>&1 || true
+    fi
+}
+
+sdk_socket_ready() {
+    local host="${1:-127.0.0.1}"
+    local port="${2:-6742}"
+    local helper="${local_bin}/mad-openrgb-sdkctl"
+    [[ -x "$helper" ]] || helper="$(command -v mad-openrgb-sdkctl 2>/dev/null || true)"
+    [[ -n "$helper" && -x "$helper" ]] || return 1
+    "$helper" --host "$host" --port "$port" plugin-list >/dev/null 2>&1
+}
+
+write_sdk_registry() {
+    local provider="$1"
+    local service="${2:-mad-openrgb-sdk.service}"
+    mkdir -p "$sdk_config_dir"
+    {
+        printf '# Generated by mad-theme-pack on %s\n' "$(date --iso-8601=seconds)"
+        printf 'MAD_OPENRGB_SDK_ENABLED=1\n'
+        printf 'MAD_OPENRGB_SDK_PROVIDER=%s\n' "$provider"
+        printf 'MAD_OPENRGB_SDK_SERVICE=%s\n' "$service"
+        printf 'MAD_OPENRGB_SDK_HOST=127.0.0.1\n'
+        printf 'MAD_OPENRGB_SDK_PORT=6742\n'
+    } >"$sdk_registry_file"
+}
+
+install_openrgb_sdk_service() {
+    local run_root="$1"
+    local live_dir="${2:-}"
+    local unit_source=""
+    local user_unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+    local unit_dest="$user_unit_dir/mad-openrgb-sdk.service"
+    local provider="madpanda"
+
+    if repo_available; then
+        unit_source="$repo_root/systemd/user/mad-openrgb-sdk.service"
+    fi
+    [[ -n "$unit_source" && -r "$unit_source" ]] || unit_source="$live_dir/helpers/systemd/user/mad-openrgb-sdk.service"
+    [[ -r "$unit_source" ]] || return 0
+    mkdir -p "$user_unit_dir"
+    if sdk_socket_ready 127.0.0.1 6742; then
+        if ! systemctl --user is-active --quiet mad-openrgb-sdk.service 2>/dev/null; then
+            provider="existing-socket"
+        fi
+    fi
+    backup_if_exists "$unit_dest" "$run_root"
+    install -m 0644 "$unit_source" "$unit_dest"
+    write_sdk_registry "$provider" "mad-openrgb-sdk.service"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --user daemon-reload >/dev/null 2>&1 || true
+        systemctl --user enable mad-openrgb-sdk.service >/dev/null 2>&1 || true
+    fi
+}
+
+install_sound_assets() {
+    local manifest="$1"
+    local live_dir="$2"
+    local source_dir="$3"
+    local run_root="$4"
+    local rel source_sound live_sound
+
+    while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        [[ "$rel" != /* ]] || continue
+        source_sound="$source_dir/$rel"
+        live_sound="$live_dir/$rel"
+        [[ -r "$source_sound" ]] || continue
+        [[ "$source_sound" == "$live_sound" ]] && continue
+        mkdir -p "$(dirname "$live_sound")"
+        backup_if_exists "$live_sound" "$run_root"
+        install -m 0644 "$source_sound" "$live_sound"
+    done < <(jq -r '.sounds // {} | to_entries[] | select(.value | type == "string") | .value | select(test("\\.(mp3|wav|ogg|flac)$"; "i"))' "$manifest")
+}
+
+set_config_var_line() {
+    local file="$1"
+    local var_name="$2"
+    local replacement="$3"
+    local tmp
+
+    [[ -r "$file" ]] || return 0
+    tmp="$(mktemp)"
+    awk -v var="$var_name" -v replacement="$replacement" '
+        BEGIN { done = 0 }
+        index($0, var " = ") == 1 {
+            if (done == 0) {
+                print replacement
+                done = 1
+            }
+            next
+        }
+        { print }
+        END {
+            if (done == 0) {
+                print replacement
+            }
+        }
+    ' "$file" >"$tmp"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+ensure_config_line() {
+    local file="$1"
+    local line="$2"
+
+    [[ -r "$file" ]] || return 0
+    grep -Fxq "$line" "$file" && return 0
+    printf '\n# Theme-owned session start sound.\n%s\n' "$line" >>"$file"
+}
+
+ensure_session_start_hook() {
+    local file="$1"
+    local wrapper="$2"
+    local tmp
+
+    [[ -r "$file" ]] || return 0
+    tmp="$(mktemp)"
+    awk '
+        $0 == "# Theme-owned session start sound." { next }
+        $0 == "# Theme-owned session startup." { next }
+        $0 == "exec-once = /home/leo/.local/bin/mad-dock-all-monitors --watch" { next }
+        $0 == "exec-once = /home/leo/.local/bin/mad-rgb-theme apply" { next }
+        $0 == "exec-once = /home/leo/.local/bin/mad-theme-sound boot" { next }
+        $0 == "exec-once = /home/leo/.local/bin/mad-session-start" { next }
+        { print }
+    ' "$file" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+    {
+        printf '\n# Theme-owned session startup.\n'
+        printf 'exec-once = %s\n' "$wrapper"
+    } >>"$tmp"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+ensure_usability_close_bind() {
+    local file="$1"
+    local wrapper="$2"
+    local tmp
+
+    [[ -r "$file" ]] || return 0
+    tmp="$(mktemp)"
+    awk '
+        $0 == "# Theme-owned tile close effect." { next }
+        $0 == "unbind = $mainMod, C" { next }
+        $0 == "bind = $mainMod, C, exec, /home/leo/.local/bin/mad-window-close" { next }
+        { print }
+    ' "$file" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+    {
+        printf '\n# Theme-owned tile close effect.\n'
+        printf 'unbind = $mainMod, C\n'
+        printf 'bind = $mainMod, C, exec, %s\n' "$wrapper"
+    } >>"$tmp"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+ensure_usability_lock_bind() {
+    local file="$1"
+    local wrapper="$2"
+    local tmp
+
+    [[ -r "$file" ]] || return 0
+    tmp="$(mktemp)"
+    awk '
+        $0 == "# Theme-owned lock screen." { next }
+        $0 == "bind = $mainMod, L, exec, hyde-shell lock-session" { next }
+        $0 == "bind = $mainMod, L, exec, /home/leo/.local/bin/mad-lock-session" { next }
+        { print }
+    ' "$file" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+    {
+        printf '\n# Theme-owned lock screen.\n'
+        printf 'bind = $mainMod, L, exec, %s\n' "$wrapper"
+    } >>"$tmp"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
+install_window_close_hooks() {
+    local run_root="$1"
+    local wrapper="$local_bin/mad-window-close"
+    local tmp
+
+    if [[ -r "$hyprbars_conf" ]]; then
+        backup_if_exists "$hyprbars_conf" "$run_root"
+        tmp="$(mktemp)"
+        awk -v wrapper="$wrapper" '
+            /hyprbars-button/ && ($0 ~ /killactive/ || $0 ~ /mad-window-close/) {
+                print "        hyprbars-button = rgb(f38ba8), 15, ×, " wrapper ", rgb(11111b)"
+                next
+            }
+            { print }
+        ' "$hyprbars_conf" >"$tmp"
+        install -m 0644 "$tmp" "$hyprbars_conf"
+        rm -f "$tmp"
+    fi
+
+    if [[ -r "$madpanda_hypr_conf" ]]; then
+        backup_if_exists "$madpanda_hypr_conf" "$run_root"
+        ensure_usability_close_bind "$madpanda_hypr_conf" "$wrapper"
+    fi
+}
+
+install_sound_hooks() {
+    local run_root="$1"
+    local sound_bin="$local_bin/mad-theme-sound"
+    local rgb_bin="$local_bin/mad-rgb-theme"
+    local lock_bin="$local_bin/mad-lock-session"
+    local session_bin="$local_bin/mad-session-start"
+    local lock_line rgb_lock_line rgb_unlock_line unlock_line
+
+    lock_line="\$LOCK_CMD = sh -c '$lock_bin'"
+    rgb_lock_line="\$RGB_LOCK_CMD = sh -c '$rgb_bin lock >/dev/null 2>&1 &'"
+    rgb_unlock_line="\$RGB_UNLOCK_CMD = sh -c '$rgb_bin unlock >/dev/null 2>&1 & $sound_bin unlock >/dev/null 2>&1 &'"
+    unlock_line="\$UNLOCK_CMD = sh -c '$rgb_bin unlock >/dev/null 2>&1 & $sound_bin unlock >/dev/null 2>&1 & sleep 3 && pkill -9 \$(hyde-shell lockscreen --get)' # dbus fallback and lockscreen cleanup"
+
+    if [[ -r "$hypridle_conf" ]]; then
+        backup_if_exists "$hypridle_conf" "$run_root"
+        set_config_var_line "$hypridle_conf" '$LOCK_CMD' "$lock_line"
+        set_config_var_line "$hypridle_conf" '$RGB_LOCK_CMD' "$rgb_lock_line"
+        set_config_var_line "$hypridle_conf" '$RGB_UNLOCK_CMD' "$rgb_unlock_line"
+        set_config_var_line "$hypridle_conf" '$UNLOCK_CMD' "$unlock_line"
+    fi
+
+    if [[ -r "$madpanda_hypr_conf" ]]; then
+        backup_if_exists "$madpanda_hypr_conf" "$run_root"
+        ensure_session_start_hook "$madpanda_hypr_conf" "$session_bin"
+        ensure_usability_lock_bind "$madpanda_hypr_conf" "$lock_bin"
+    fi
+}
+
+apply_active_theme_rgb_if_needed() {
+    local name="$1"
+    local run_root="$2"
+    local rgb_bin
+
+    [[ "${MAD_THEME_PACK_SKIP_RGB_APPLY:-0}" != "1" ]] || return 0
+    feature_enabled "$name" rgb || return 0
+    [[ "$(current_theme)" == "$name" ]] || return 0
+
+    rgb_bin="$(command -v mad-rgb-theme 2>/dev/null || true)"
+    if [[ -z "$rgb_bin" && -x "$local_bin/mad-rgb-theme" ]]; then
+        rgb_bin="$local_bin/mad-rgb-theme"
+    fi
+    [[ -n "$rgb_bin" && -x "$rgb_bin" ]] || return 0
+
+    mkdir -p "$run_root/logs"
+    MAD_RGB_THEME_LOG_ROOT="$run_root/rgb-apply" "$rgb_bin" apply "$name" >"$run_root/logs/mad-rgb-apply.log" 2>&1 || true
+}
+
+configure_rgb_local_mapping_if_needed() {
+    local name="$1"
+    local run_root="$2"
+    local rgb_bin
+
+    feature_enabled "$name" rgb || return 0
+    rgb_bin="$(command -v mad-rgb-theme 2>/dev/null || true)"
+    if [[ -z "$rgb_bin" && -x "$local_bin/mad-rgb-theme" ]]; then
+        rgb_bin="$local_bin/mad-rgb-theme"
+    fi
+    [[ -n "$rgb_bin" && -x "$rgb_bin" ]] || return 0
+
+    mkdir -p "$run_root/logs"
+    MAD_RGB_THEME_LOG_ROOT="$run_root/rgb-configure-local" "$rgb_bin" configure-local "$name" >"$run_root/logs/mad-rgb-configure-local.log" 2>&1 || true
+}
+
+apply_theme_wallpapers_if_needed() {
+    local name="$1"
+    local run_root="$2"
+    local wallpaper_bin
+
+    if ! feature_enabled "$name" hires_wallpapers \
+        && ! feature_enabled "$name" vertical_wallpapers \
+        && ! feature_enabled "$name" animated_wallpapers; then
+        return 0
+    fi
+
+    wallpaper_bin="$(command -v mad-wallpaper-theme 2>/dev/null || true)"
+    if [[ -z "$wallpaper_bin" && -x "$local_bin/mad-wallpaper-theme" ]]; then
+        wallpaper_bin="$local_bin/mad-wallpaper-theme"
+    fi
+    [[ -n "$wallpaper_bin" && -x "$wallpaper_bin" ]] || {
+        printf 'Skipping per-output wallpaper apply: mad-wallpaper-theme is unavailable.\n' >&2
+        return 0
+    }
+
+    mkdir -p "$run_root/logs"
+    "$wallpaper_bin" apply "$name" >"$run_root/logs/mad-wallpaper-theme.log" 2>&1 || {
+        printf 'Per-output wallpaper apply failed. See %s/logs/mad-wallpaper-theme.log\n' "$run_root" >&2
+    }
+}
+
+restore_theme_wallpapers_if_needed() {
+    local name="$1"
+    local run_root="$2"
+    local wallpaper_bin
+
+    wallpaper_bin="$(command -v mad-wallpaper-theme 2>/dev/null || true)"
+    if [[ -z "$wallpaper_bin" && -x "$local_bin/mad-wallpaper-theme" ]]; then
+        wallpaper_bin="$local_bin/mad-wallpaper-theme"
+    fi
+    [[ -n "$wallpaper_bin" && -x "$wallpaper_bin" ]] || return 0
+    mkdir -p "$run_root/logs"
+    "$wallpaper_bin" restore "$name" >"$run_root/logs/restore-wallpapers.log" 2>&1 || true
+}
+
+apply_theme() {
+    local name="$1"
+    local dry_run="$2"
+    local manifest live_dir source_dir slug run_root terminal_config rgb_theme source_stickers wallpapers active_wall sddm_name sddm_dir
+    live_dir="$(live_theme_dir_for "$name")"
+    source_dir="$(runtime_theme_dir_for "$name")"
+    manifest="$(runtime_manifest_for "$name")"
+    slug="$(theme_slug "$name")"
+    run_root="${MAD_THEME_PACK_RUN_ROOT:-$(make_run_root "$slug")}"
+    require_manifest "$manifest"
+
+    terminal_config="$source_dir/terminal/fastfetch.jsonc"
+    rgb_theme="$source_dir/rgb.theme"
+    source_stickers="$source_dir/terminal/stickers"
+    wallpapers="$live_dir/wallpapers"
+    active_wall="$wallpapers/$(json_get "$manifest" '.wallpapers.active')"
+    sddm_name="$(json_get "$manifest" '.sddm.themeName')"
+    sddm_dir="/usr/share/sddm/themes/$sddm_name"
+
+    printf 'Mode: %s\n' "$([[ "$dry_run" == "1" ]] && printf dry-run || printf apply)"
+    printf 'Theme: %s\n' "$name"
+    printf 'Evidence root: %s\n' "$run_root"
+    printf 'Will install live manifest to: %s/theme.json\n' "$live_dir"
+    printf 'Will install theme-owned RGB config when present.\n'
+    printf 'Will stage terminal config and theme-owned stickers when present.\n'
+    printf 'Will stage theme-owned identity assets when present.\n'
+    printf 'Will stage theme-owned lock/unlock/boot sounds when declared.\n'
+    printf 'Will render theme-owned Dunst styling when declared.\n'
+    printf 'Will set Hyprlock to a theme-owned lock layout when declared.\n'
+    printf 'Will install a lightweight watcher so normal HyDE switching activates/deactivates the theme.\n'
+    printf 'Will install generic sound hooks that no-op for themes without sound assets.\n'
+    printf 'Will install generic tile-close hooks that no-op effects for themes without tile-close assets.\n'
+    printf 'Will install active-theme-aware root RGB shutdown fallback when RGB is enabled and sudo -n allows.\n'
+    printf 'Will own and regenerate HyDE Dunst wallbash styling when notification identity is declared.\n'
+    printf 'Will install and activate bundled SDDM theme at: %s only when SDDM is enabled.\n' "$sddm_dir"
+    printf 'Will apply per-output wallpaper tiers only when wallpaper features are enabled.\n'
+    printf 'Will not format disks, regenerate GRUB, install Plymouth, or edit the source SDDM theme.\n'
+
+    [[ "$dry_run" == "1" ]] && return 0
+
+    mkdir -p "$run_root/logs" "$live_dir/terminal/stickers" "$live_dir/sddm" "$live_dir/grub" "$live_dir/hyprlock" "$live_dir/identity" "$live_dir/notifications"
+    if [[ "$manifest" != "$live_dir/theme.json" ]]; then
+        backup_if_exists "$live_dir/theme.json" "$run_root"
+        install -m 0644 "$manifest" "$live_dir/theme.json"
+    fi
+    if [[ -r "$rgb_theme" ]]; then
+        if [[ "$rgb_theme" != "$live_dir/rgb.theme" ]]; then
+            backup_if_exists "$live_dir/rgb.theme" "$run_root"
+            install -m 0644 "$rgb_theme" "$live_dir/rgb.theme"
+        fi
+    fi
+    if [[ -r "$terminal_config" && "$terminal_config" != "$live_dir/terminal/fastfetch.jsonc" ]]; then
+        install -m 0644 "$terminal_config" "$live_dir/terminal/fastfetch.jsonc"
+    fi
+    stage_helper_payload "$live_dir"
+    install_theme_helpers "$run_root" "$live_dir"
+    if feature_enabled "$name" sounds || feature_enabled "$name" effects; then
+        install_sound_assets "$manifest" "$live_dir" "$source_dir" "$run_root"
+    fi
+
+    local -a source_sticker_files=()
+    if [[ -d "$source_stickers" ]]; then
+        mapfile -t source_sticker_files < <(find "$source_stickers" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) | sort)
+    fi
+
+    if ((${#source_sticker_files[@]} > 0)) && [[ "$source_stickers" != "$live_dir/terminal/stickers" ]]; then
+        find "$live_dir/terminal/stickers" -maxdepth 1 -type f \
+            \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) \
+            -delete
+        local source
+        for source in "${source_sticker_files[@]}"; do
+            install -m 0644 "$source" "$live_dir/terminal/stickers/${source##*/}"
+        done
+    fi
+
+    find "$live_dir/terminal/stickers" -maxdepth 1 -type l -delete
+    local sticker_count
+    sticker_count="$(find "$live_dir/terminal/stickers" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) | wc -l)"
+    if ((sticker_count > 0)); then
+        printf 'Keeping %s theme-owned terminal sticker files.\n' "$sticker_count"
+    fi
+
+    if [[ -r "$active_wall" ]]; then
+        install -m 0644 "$active_wall" "$live_dir/sddm/dark-zen-login.png"
+        install -m 0644 "$active_wall" "$live_dir/hyprlock/dark-zen-lock.png"
+    fi
+
+    if feature_enabled "$name" identity; then
+        install_identity_assets "$manifest" "$live_dir" "$source_dir" "$run_root"
+    else
+        clear_identity_overrides "$run_root" || true
+    fi
+    install_theme_watcher_service "$run_root" "$live_dir"
+    if feature_enabled "$name" rgb; then
+        install_openrgb_sdk_service "$run_root" "$live_dir"
+    fi
+    if feature_enabled "$name" sounds || feature_enabled "$name" rgb; then
+        install_sound_hooks "$run_root"
+    fi
+    if feature_enabled "$name" effects; then
+        install_window_close_hooks "$run_root"
+    fi
+    apply_theme_wallpapers_if_needed "$name" "$run_root"
+
+    if sudo_available; then
+        if feature_enabled "$name" rgb; then
+            install_rgb_system_clear_service "$run_root" "$live_dir"
+        fi
+        if feature_enabled "$name" sddm; then
+            install_sddm_theme "$name" "0" "$run_root/sddm" >"$run_root/logs/sddm-theme.log" 2>&1 || {
+                printf 'SDDM theme install failed. See %s/logs/sddm-theme.log\n' "$run_root" >&2
+            }
+        fi
+    else
+        printf 'Skipping root-owned RGB/SDDM staging: sudo -n is unavailable.\n' >&2
+    fi
+
+    configure_rgb_local_mapping_if_needed "$name" "$run_root"
+    apply_active_theme_rgb_if_needed "$name" "$run_root"
+    printf 'Applied safe theme-pack adapters. Evidence: %s\n' "$run_root"
+}
+
+terminal_theme() {
+    local name="$1"
+    local manifest live_dir config splash image
+    live_dir="$(live_theme_dir_for "$name")"
+    manifest="$(runtime_manifest_for "$name")"
+    if [[ -z "$name" || ! -r "$manifest" ]]; then
+        return 1
+    fi
+    require_manifest "$manifest"
+    config="$live_dir/terminal/fastfetch.jsonc"
+    splash="$(json_get "$manifest" '.terminal.splash')"
+
+    if ! image="$(pick_terminal_image "$live_dir")"; then
+        return 1
+    fi
+
+    if ! command -v fastfetch >/dev/null 2>&1; then
+        printf '%s\n' "$splash"
+        return 0
+    fi
+    if [[ ! -r "$config" ]]; then
+        config="${XDG_CONFIG_HOME:-$HOME/.config}/fastfetch/config.jsonc"
+    fi
+    if terminal_supports_images; then
+        fastfetch --config "$config" --kitty "$image" --logo-height 18
+    else
+        fastfetch --config "$config" --logo none
+    fi
+}
+
+deactivate_theme() {
+    local name="${1:-}"
+    local run_root
+    [[ -n "$name" ]] || name="$(theme_name_or_current)"
+    run_root="$(make_run_root "$(theme_slug "${name:-unknown}")-deactivate")"
+    mkdir -p "$run_root/logs"
+    if [[ -n "$name" ]] && feature_enabled "$name" rgb && command -v mad-rgb-theme >/dev/null 2>&1; then
+        MAD_RGB_THEME_LOG_ROOT="$run_root/rgb-clear" mad-rgb-theme clear "$name" >"$run_root/logs/mad-rgb-clear.log" 2>&1 || true
+    fi
+    restore_theme_wallpapers_if_needed "$name" "$run_root"
+    clear_identity_overrides "$run_root" >"$run_root/logs/clear-identity.log" 2>&1 || true
+    restore_sddm_if_owned "$name" "$run_root" >"$run_root/logs/restore-sddm.log" 2>&1 || true
+    printf 'Deactivated MADPANDA theme adapters for %s. Evidence: %s\n' "${name:-unknown}" "$run_root"
+}
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        status)
+            shift || true
+            status_theme "$(theme_name_or_current "${1:-}")"
+            ;;
+        apply)
+            shift || true
+            local dry_run="0"
+            local name=""
+            while (($#)); do
+                case "$1" in
+                    --dry-run)
+                        dry_run="1"
+                        ;;
+                    *)
+                        if [[ -z "$name" ]]; then
+                            name="$1"
+                        else
+                            name="$name $1"
+                        fi
+                        ;;
+                esac
+                shift
+            done
+            [[ -n "$name" ]] || name="$(theme_name_or_current)"
+            apply_theme "$name" "$dry_run"
+            ;;
+        promote)
+            shift || true
+            local dry_run="0"
+            local name=""
+            while (($#)); do
+                case "$1" in
+                    --dry-run)
+                        dry_run="1"
+                        ;;
+                    *)
+                        if [[ -z "$name" ]]; then
+                            name="$1"
+                        else
+                            name="$name $1"
+                        fi
+                        ;;
+                esac
+                shift
+            done
+            [[ -n "$name" ]] || name="$(theme_name_or_current)"
+            promote_theme "$name" "$dry_run"
+            ;;
+        build-hyde)
+            shift || true
+            local dry_run="0"
+            local name=""
+            while (($#)); do
+                case "$1" in
+                    --dry-run)
+                        dry_run="1"
+                        ;;
+                    *)
+                        if [[ -z "$name" ]]; then
+                            name="$1"
+                        else
+                            name="$name $1"
+                        fi
+                        ;;
+                esac
+                shift
+            done
+            [[ -n "$name" ]] || name="$(theme_name_or_current)"
+            build_hyde_package "$name" "$dry_run"
+            ;;
+        deps)
+            shift || true
+            local install="0"
+            local name=""
+            while (($#)); do
+                case "$1" in
+                    --install)
+                        install="1"
+                        ;;
+                    *)
+                        if [[ -z "$name" ]]; then
+                            name="$1"
+                        else
+                            name="$name $1"
+                        fi
+                        ;;
+                esac
+                shift
+            done
+            [[ -n "$name" ]] || name="$(theme_name_or_current)"
+            require_manifest "$(repo_manifest_for "$name")"
+            printf 'Theme: %s\n' "$name"
+            deps_theme "$install"
+            ;;
+        terminal)
+            shift || true
+            terminal_theme "$(theme_name_or_current "${1:-}")"
+            ;;
+        sddm)
+            shift || true
+            local dry_run="0"
+            local name=""
+            while (($#)); do
+                case "$1" in
+                    --dry-run)
+                        dry_run="1"
+                        ;;
+                    *)
+                        if [[ -z "$name" ]]; then
+                            name="$1"
+                        else
+                            name="$name $1"
+                        fi
+                        ;;
+                esac
+                shift
+            done
+            [[ -n "$name" ]] || name="$(theme_name_or_current)"
+            install_sddm_theme "$name" "$dry_run" ""
+            ;;
+        clear-overrides)
+            clear_identity_overrides "$(make_run_root "clear-overrides")"
+            ;;
+        deactivate)
+            shift || true
+            deactivate_theme "$(theme_name_or_current "${1:-}")"
+            ;;
+        -h|--help|help|"")
+            usage
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"

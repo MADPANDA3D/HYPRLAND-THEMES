@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_name="MADPANDA Dark Zen"
+theme_slug="MADPANDA-Dark-Zen"
+config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$theme_slug"
+state_file="$config_dir/bar.env"
+manifest="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/$theme_name/theme.json"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-bar-provider current
+  mad-bar-provider set eww|waybar
+  mad-bar-provider status
+  mad-bar-provider is-eww
+  mad-bar-provider is-waybar
+
+Stores the selected Dark Zen bar provider. Eww is the default provider when no
+explicit selection exists.
+EOF
+}
+
+default_provider() {
+    if [[ -r "$manifest" ]] && command -v jq >/dev/null 2>&1; then
+        jq -r '.bar.defaultProvider // .bar.provider // "eww"' "$manifest" 2>/dev/null || printf 'eww\n'
+    else
+        printf 'eww\n'
+    fi
+}
+
+valid_provider() {
+    [[ "${1:-}" == "eww" || "${1:-}" == "waybar" ]]
+}
+
+saved_provider() {
+    local value=""
+    if [[ -r "$state_file" ]]; then
+        # shellcheck disable=SC1090
+        source "$state_file" 2>/dev/null || true
+        value="${MAD_THEME_BAR_PROVIDER:-}"
+    fi
+    if valid_provider "$value"; then
+        printf '%s\n' "$value"
+    else
+        default_provider
+    fi
+}
+
+set_provider() {
+    local provider="$1"
+    valid_provider "$provider" || {
+        printf 'mad-bar-provider: invalid provider: %s\n' "$provider" >&2
+        return 2
+    }
+    mkdir -p "$config_dir"
+    {
+        printf 'MAD_THEME_NAME=%q\n' "$theme_name"
+        printf 'MAD_THEME_BAR_PROVIDER=%q\n' "$provider"
+        printf 'MAD_THEME_BAR_PROVIDER_SET_AT=%q\n' "$(date --iso-8601=seconds)"
+    } >"$state_file.tmp"
+    mv -f "$state_file.tmp" "$state_file"
+}
+
+case "${1:-current}" in
+    current)
+        saved_provider
+        ;;
+    set)
+        set_provider "${2:-}"
+        ;;
+    status)
+        printf 'theme=%s\n' "$theme_name"
+        printf 'stateFile=%s\n' "$state_file"
+        printf 'provider=%s\n' "$(saved_provider)"
+        ;;
+    is-eww)
+        [[ "$(saved_provider)" == "eww" ]]
+        ;;
+    is-waybar)
+        [[ "$(saved_provider)" == "waybar" ]]
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

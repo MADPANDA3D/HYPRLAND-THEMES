@@ -1,0 +1,3974 @@
+{
+  "metadata": {
+    "title": "Curated Star Wars Quote List",
+    "created_date": "2026-05-07",
+    "format_version": "1.0",
+    "scope": "Short, curated Star Wars quote snippets across films, selected TV series, games, and a Chewbacca vocalization section.",
+    "copyright_note": "This is a copyright-conscious curated collection, not a comprehensive transcript, subtitle dump, or exhaustive dialogue database. Longer memorable moments are intentionally omitted or shortened.",
+    "accuracy_note": "Best-effort attributions from widely known Star Wars dialogue. Verify exact wording against licensed scripts/subtitles before publishing commercially.",
+    "wookiee_note": "Chewbacca entries are phonetic approximations rather than official spellings. Yes, the rrrrrrrrr made the cut. The Wookiee lobby can stand down."
+  },
+  "schema": {
+    "id": "Stable quote id.",
+    "era": "Grouping such as Prequel Trilogy, Original Trilogy, Television, etc.",
+    "source": "Film, show, game, or recurring source.",
+    "medium": "Film, TV Series, Game/Expanded Universe, or Film/TV.",
+    "continuity": "Canon, Mixed/Legends, or other continuity note.",
+    "character": "Character or speaker attribution.",
+    "quote": "Short quote snippet or approximate vocalization.",
+    "quote_type": "direct_short or approximate_vocalization.",
+    "note": "Optional context or caveat."
+  },
+  "counts": {
+    "total_entries": 309,
+    "by_era": {
+      "Prequel Trilogy": 56,
+      "Original Trilogy": 82,
+      "Sequel Trilogy": 51,
+      "Anthology Films": 27,
+      "Television": 71,
+      "Character Vocalizations": 10,
+      "Legends / Games": 12
+    },
+    "by_medium": {
+      "Film": 216,
+      "TV Series": 71,
+      "Film/TV": 10,
+      "Game/Expanded Universe": 12
+    },
+    "by_quote_type": {
+      "direct_short": 299,
+      "approximate_vocalization": 10
+    }
+  },
+  "quotes": [
+    {
+      "id": "swq_0001",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Fear is the path to the dark side.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0002",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qui-Gon Jinn",
+      "quote": "There's always a bigger fish.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0003",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Wipe them out. All of them.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0004",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "Now this is podracing!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0005",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jar Jar Binks",
+      "quote": "Meesa called Jar Jar Binks.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0006",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jar Jar Binks",
+      "quote": "How wude!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0007",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jar Jar Binks",
+      "quote": "Yousa in big doo-doo this time.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0008",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Maul",
+      "quote": "At last we will reveal ourselves to the Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0009",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Always two there are. No more, no less.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0010",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "I will make it legal.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0011",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qui-Gon Jinn",
+      "quote": "The negotiations were short.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0012",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "Are you an angel?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0013",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qui-Gon Jinn",
+      "quote": "Your focus determines your reality.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0014",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Mace Windu",
+      "quote": "The boy is dangerous.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0015",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qui-Gon Jinn",
+      "quote": "Promise me you will train the boy.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0016",
+      "era": "Prequel Trilogy",
+      "source": "Episode I: The Phantom Menace",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qui-Gon Jinn",
+      "quote": "The ability to speak does not make you intelligent.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0017",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "I don't like sand.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0018",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Begun, the Clone War has.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0019",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Mace Windu",
+      "quote": "This party's over.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0020",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "You'll be the death of me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0021",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "I hate it when he does that.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0022",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "Aggressive negotiations.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0023",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Padmé Amidala",
+      "quote": "I truly, deeply love you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0024",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "I have a bad feeling about this.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0025",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "The shroud of the dark side has fallen.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0026",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Around the survivors, a perimeter create.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0027",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Lost a planet, Master Obi-Wan has.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0028",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Good call, my young Padawan.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0029",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "Just being around her again is intoxicating.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0030",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "I wish that I could just wish away my feelings.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0031",
+      "era": "Prequel Trilogy",
+      "source": "Episode II: Attack of the Clones",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "This weapon is your life.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0032",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Hello there.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0033",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "General Grievous",
+      "quote": "General Kenobi!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0034",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "General Grievous",
+      "quote": "You are a bold one.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0035",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Another happy landing.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0036",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "This is where the fun begins.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0037",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "I have the high ground.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0038",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Anakin Skywalker",
+      "quote": "You underestimate my power!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0039",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "You were the chosen one!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0040",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "I hate you!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0041",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Unlimited power!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0042",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "It's treason, then.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0043",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "I am the Senate.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0044",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Execute Order 66.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0045",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Padmé Amidala",
+      "quote": "So this is how liberty dies.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0046",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Not from a Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0047",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Good relations with the Wookiees, I have.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0048",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Count Dooku",
+      "quote": "Twice the pride, double the fall.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0049",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "In my view, the Jedi are evil.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0050",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Padmé Amidala",
+      "quote": "Anakin, you're breaking my heart.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0051",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "You turned her against me!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0052",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Only a Sith deals in absolutes.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0053",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "You shall be known as Darth Vader.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0054",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Rise.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0055",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Nooooooooo!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0056",
+      "era": "Prequel Trilogy",
+      "source": "Episode III: Revenge of the Sith",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Have you heard the tragedy of Darth Plagueis the Wise?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0057",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Help me, Obi-Wan Kenobi. You're my only hope.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0058",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "I find your lack of faith disturbing.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0059",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "The Force will be with you. Always.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0060",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Use the Force, Luke.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0061",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "These aren't the droids you're looking for.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0062",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "That's no moon.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0063",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "The Force is strong with this one.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0064",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "Let the Wookiee win.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0065",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Great, kid. Don't get cocky.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0066",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Gold Five",
+      "quote": "Stay on target.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0067",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "You're all clear, kid!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0068",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Aren't you a little short for a stormtrooper?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0069",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Into the garbage chute, flyboy!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0070",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Will somebody get this big walking carpet out of my way?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0071",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "I have a very bad feeling about this.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0072",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Traveling through hyperspace ain't like dusting crops, boy.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0073",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Hokey religions and ancient weapons.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0074",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "The circle is now complete.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0075",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Now I am the master.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0076",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Only a master of evil, Darth.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0077",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Your eyes can deceive you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0078",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "In my experience, there's no such thing as luck.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0079",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "This will be a day long remembered.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0080",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "I am fluent in over six million forms of communication.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0081",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "We're doomed.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0082",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "Thank the Maker!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0083",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "This is some rescue.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0084",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "What an incredible smell you've discovered!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0085",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Sorry about the mess.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0086",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Boring conversation anyway.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0087",
+      "era": "Original Trilogy",
+      "source": "Episode IV: A New Hope",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "You came in that thing? You're braver than I thought.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0088",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Do. Or do not. There is no try.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0089",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "No. I am your father.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0090",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "I love you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0091",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I know.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0092",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Never tell me the odds.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0093",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Who's scruffy-looking?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0094",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Why, you stuck-up, half-witted, scruffy-looking nerf herder!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0095",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I thought they smelled bad on the outside!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0096",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Size matters not.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0097",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Luminous beings are we, not this crude matter.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0098",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "That is why you fail.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0099",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Always in motion is the future.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0100",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Wars not make one great.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0101",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "The Force is with you, young Skywalker.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0102",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Impressive. Most impressive.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0103",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Apology accepted, Captain Needa.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0104",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "You have failed me for the last time.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0105",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "I am altering the deal.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0106",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Pray I don't alter it any further.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0107",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "Would it help if I got out and pushed?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0108",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "You must unlearn what you have learned.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0109",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "There is another.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0110",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "I don't believe it.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0111",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "You will be. You will be.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0112",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Control, control, you must learn control!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0113",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Adventure. Excitement. A Jedi craves not these things.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0114",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Looking? Found someone, you have.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0115",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Princess Leia Organa",
+      "quote": "This is no cave.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0116",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Then I'll see you in hell!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0117",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "R2-D2, you know better than to trust a strange computer!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0118",
+      "era": "Original Trilogy",
+      "source": "Episode V: The Empire Strikes Back",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Laugh it up, fuzzball.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0119",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Admiral Ackbar",
+      "quote": "It's a trap!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0120",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "I am a Jedi, like my father before me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0121",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "So be it, Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0122",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Now, young Skywalker, you will die.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0123",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Your overconfidence is your weakness.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0124",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Your faith in your friends is yours.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0125",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "It's against my programming to impersonate a deity.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0126",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Mon Mothma",
+      "quote": "Many Bothans died to bring us this information.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0127",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Never. I'll never turn to the dark side.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0128",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "You were right about me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0129",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Tell your sister you were right.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0130",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "I will not fight you, Father.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0131",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Sister! So, you have a twin sister.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0132",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "There is still good in him.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0133",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Young fool.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0134",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "The Emperor is not as forgiving as I am.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0135",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Lando Calrissian",
+      "quote": "The shield is down!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0136",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I think my eyes are getting better.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0137",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Fly casual.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0138",
+      "era": "Original Trilogy",
+      "source": "Episode VI: Return of the Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "Everything is proceeding as I have foreseen.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0139",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Chewie, we're home.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0140",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "That's not how the Force works!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0141",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Kylo Ren",
+      "quote": "I will finish what you started.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0142",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Maz Kanata",
+      "quote": "The belonging you seek is not behind you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0143",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "I'm no one.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0144",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "FN-2199",
+      "quote": "Traitor!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0145",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "The garbage will do.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0146",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Escape now, hug later.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0147",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "Women always figure out the truth.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0148",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Maz Kanata",
+      "quote": "The Force, it's calling to you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0149",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "I bypassed the compressor.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0150",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Kylo Ren",
+      "quote": "I'm being torn apart.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0151",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Lor San Tekka",
+      "quote": "Without the Jedi, there can be no balance.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0152",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "Because it's the right thing to do.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0153",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "I need a pilot.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0154",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "Classified? Really? Me too.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0155",
+      "era": "Sequel Trilogy",
+      "source": "Episode VII: The Force Awakens",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "I'm in charge now, Phasma.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0156",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Kylo Ren",
+      "quote": "Let the past die.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0157",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "The greatest teacher, failure is.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0158",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "No one's ever really gone.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0159",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "See you around, kid.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0160",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "The sacred Jedi texts!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0161",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "Page-turners, they were not.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0162",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Breathe. Just breathe.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0163",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Reach out.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0164",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rose Tico",
+      "quote": "That's how we're gonna win.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0165",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rose Tico",
+      "quote": "Saving what we love.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0166",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Supreme Leader Snoke",
+      "quote": "Darkness rises, and light to meet it.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0167",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Kylo Ren",
+      "quote": "You're nothing. But not to me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0168",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "Rebel scum.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0169",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Amazing. Every word of what you just said was wrong.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0170",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "The Rebellion is reborn today.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0171",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "I will not be the last Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0172",
+      "era": "Sequel Trilogy",
+      "source": "Episode VIII: The Last Jedi",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Poe Dameron",
+      "quote": "Permission to jump in an X-wing and blow something up?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0173",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Poe Dameron",
+      "quote": "Somehow, Palpatine returned.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0174",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Finn",
+      "quote": "They fly now?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0175",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "C-3PO",
+      "quote": "Taking one last look, sir.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0176",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "Be with me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0177",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Sidious",
+      "quote": "I am all the Sith.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0178",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "And I am all the Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0179",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "A Jedi's weapon deserves more respect.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0180",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Leia Organa",
+      "quote": "Never underestimate a droid.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0181",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "Rey Skywalker.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0182",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Ben Solo",
+      "quote": "Dad...",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0183",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I know.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0184",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Leia Organa",
+      "quote": "The Force will be with you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0185",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Luke Skywalker",
+      "quote": "Always.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0186",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "I did want to take your hand.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0187",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "Ben's hand.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0188",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Lando Calrissian",
+      "quote": "There are more of us.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0189",
+      "era": "Sequel Trilogy",
+      "source": "Episode IX: The Rise of Skywalker",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Rey",
+      "quote": "People keep telling me they know me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0190",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "I am one with the Force.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0191",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "The Force is with me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0192",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jyn Erso",
+      "quote": "Rebellions are built on hope.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0193",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jyn Erso",
+      "quote": "I rebel.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0194",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Saw Gerrera",
+      "quote": "Save the rebellion! Save the dream!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0195",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "K-2SO",
+      "quote": "Congratulations. You are being rescued.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0196",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "I'm blind!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0197",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Cassian Andor",
+      "quote": "Make ten men feel like a hundred.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0198",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Be careful not to choke on your aspirations.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0199",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Jyn Erso",
+      "quote": "What chance do we have?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0200",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Leia Organa",
+      "quote": "We have hope.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0201",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "Trust the Force.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0202",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Baze Malbus",
+      "quote": "You were right.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0203",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "The strongest stars have hearts of kyber.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0204",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "K-2SO",
+      "quote": "I find that answer vague and unconvincing.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0205",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "K-2SO",
+      "quote": "Your behavior, Jyn Erso, is continually unexpected.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0206",
+      "era": "Anthology Films",
+      "source": "Rogue One: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Chirrut Îmwe",
+      "quote": "There is more than one sort of prison.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0207",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I've got a really good feeling about this.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0208",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Tobias Beckett",
+      "quote": "Assume everyone will betray you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0209",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Lando Calrissian",
+      "quote": "Everything you've heard about me is true.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0210",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "L3-37",
+      "quote": "I don't like it. I don't agree with it.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0211",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "190 years old? You look great!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0212",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I need that ship.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0213",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Lando Calrissian",
+      "quote": "You might want to buckle up, baby.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0214",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Qi'ra",
+      "quote": "I might be the only person who knows what you really are.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0215",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Han Solo",
+      "quote": "I'm a driver. And I'm a flyer.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0216",
+      "era": "Anthology Films",
+      "source": "Solo: A Star Wars Story",
+      "medium": "Film",
+      "continuity": "Canon",
+      "character": "Tobias Beckett",
+      "quote": "Let me give you some advice.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0217",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Clone Troopers",
+      "quote": "Good soldiers follow orders.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0218",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Fives",
+      "quote": "I am not just another number!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0219",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Captain Rex",
+      "quote": "In my book, experience outranks everything.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0220",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Captain Rex",
+      "quote": "The mission always comes first.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0221",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Clone Trooper Sinker",
+      "quote": "We're just clones, sir.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0222",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "This is a new day, a new beginning.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0223",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Maul",
+      "quote": "I was cast aside.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0224",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Satine.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0225",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Yoda",
+      "quote": "The war's not over yet.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0226",
+      "era": "Television",
+      "source": "Star Wars: The Clone Wars",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "I know what I have to do.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0227",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "I am no Jedi.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0228",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Then you will die braver than most.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0229",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Anakin Skywalker was weak. I destroyed him.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0230",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "I won't leave you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0231",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "The Grand Inquisitor",
+      "quote": "There are some things far more frightening than death.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0232",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "The Bendu",
+      "quote": "I am the Bendu.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0233",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kanan Jarrus",
+      "quote": "The Force is in all things.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0234",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kanan Jarrus",
+      "quote": "Kanan Jarrus, Jedi Knight.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0235",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Hera Syndulla",
+      "quote": "We're family.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0236",
+      "era": "Television",
+      "source": "Star Wars Rebels",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ezra Bridger",
+      "quote": "May the Force be with you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0237",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "This is the way.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0238",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kuiil",
+      "quote": "I have spoken.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0239",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "Wherever I go, he goes.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0240",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "I can bring you in warm, or I can bring you in cold.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0241",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "Weapons are part of my religion.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0242",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "Dank farrik!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0243",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "I like those odds.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0244",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Cobb Vanth",
+      "quote": "Bad news. You can't live here anymore.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0245",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "The Armorer",
+      "quote": "This is the way.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0246",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "IG-11",
+      "quote": "I will initiate self-destruct.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0247",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "No droids.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0248",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "Grogu.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0249",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "May the Force be with you.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0250",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Bo-Katan Kryze",
+      "quote": "I am not my father.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0251",
+      "era": "Television",
+      "source": "The Mandalorian",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Moff Gideon",
+      "quote": "Long live the Empire.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0252",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Boba Fett",
+      "quote": "I am Boba Fett.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0253",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Boba Fett",
+      "quote": "Like a bantha.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0254",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Boba Fett",
+      "quote": "I intend to rule with respect.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0255",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Boba Fett",
+      "quote": "Jabba ruled with fear.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0256",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Din Djarin",
+      "quote": "This is the way.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0257",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Fennec Shand",
+      "quote": "Credits can buy muscle.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0258",
+      "era": "Television",
+      "source": "The Book of Boba Fett",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Boba Fett",
+      "quote": "Why speak of conflict?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0259",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "I'm sorry, Anakin.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0260",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "You didn't kill Anakin Skywalker. I did.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0261",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Then my friend is truly dead.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0262",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "Have you come to destroy me, Obi-Wan?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0263",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Darth Vader",
+      "quote": "I am what you made me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0264",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Goodbye, Darth.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0265",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Obi-Wan Kenobi",
+      "quote": "Hello there.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0266",
+      "era": "Television",
+      "source": "Obi-Wan Kenobi",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Leia Organa",
+      "quote": "I like droids.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0267",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kino Loy",
+      "quote": "One way out!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0268",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kino Loy",
+      "quote": "I can't swim.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0269",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kino Loy",
+      "quote": "Never more than twelve.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0270",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Luthen Rael",
+      "quote": "What do I sacrifice? Everything!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0271",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Maarva Andor",
+      "quote": "Fight the Empire!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0272",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Dedra Meero",
+      "quote": "Power doesn't panic.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0273",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Maarva Andor",
+      "quote": "Tell him I love him.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0274",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Karis Nemik",
+      "quote": "Try.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0275",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Maarva Andor",
+      "quote": "Oppression is the mask of fear.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0276",
+      "era": "Television",
+      "source": "Andor",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Kino Loy",
+      "quote": "Climb!",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0277",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Hunter",
+      "quote": "When have we ever followed orders?",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0278",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Hunter",
+      "quote": "We do not leave our own behind.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0279",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Hunter",
+      "quote": "Omega is one of us.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0280",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Crosshair",
+      "quote": "I am not them.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0281",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Clone Troopers",
+      "quote": "Good soldiers follow orders.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0282",
+      "era": "Television",
+      "source": "Star Wars: The Bad Batch",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Tech",
+      "quote": "Plan 99.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0283",
+      "era": "Television",
+      "source": "Ahsoka",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "To defeat your enemy, you must know them.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0284",
+      "era": "Television",
+      "source": "Ahsoka",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Huyang",
+      "quote": "Perhaps it is time to begin again.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0285",
+      "era": "Television",
+      "source": "Ahsoka",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Baylan Skoll",
+      "quote": "Impatience for victory will guarantee defeat.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0286",
+      "era": "Television",
+      "source": "Ahsoka",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "I choose to live.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0287",
+      "era": "Television",
+      "source": "Ahsoka",
+      "medium": "TV Series",
+      "continuity": "Canon",
+      "character": "Ahsoka Tano",
+      "quote": "Heir to the Empire.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0288",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Rrrrrrr!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0289",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Aaarrrgh!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0290",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Grrraaaaargh!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0291",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Wrrrraaaah!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0292",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Rrrr-ghghgh!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0293",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Awoooooorrrr!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0294",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Hrrrnnnngh!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0295",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Rrrraaaawwwrrr!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0296",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Grrrrowwwrrr!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0297",
+      "era": "Character Vocalizations",
+      "source": "Multiple Star Wars appearances",
+      "medium": "Film/TV",
+      "continuity": "Canon",
+      "character": "Chewbacca",
+      "quote": "Aaaarrrr-rooo!",
+      "quote_type": "approximate_vocalization",
+      "note": "Phonetic Wookiee vocalization; rendered approximately for fun, not an official transcript spelling."
+    },
+    {
+      "id": "swq_0298",
+      "era": "Legends / Games",
+      "source": "Star Wars: Knights of the Old Republic II",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Kreia",
+      "quote": "Apathy is death.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0299",
+      "era": "Legends / Games",
+      "source": "Star Wars: Knights of the Old Republic",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "HK-47",
+      "quote": "Meatbag.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0300",
+      "era": "Legends / Games",
+      "source": "Star Wars: Knights of the Old Republic",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "HK-47",
+      "quote": "Statement: HK-47 is ready to serve.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0301",
+      "era": "Legends / Games",
+      "source": "Sith Code",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Sith Code",
+      "quote": "Peace is a lie.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0302",
+      "era": "Legends / Games",
+      "source": "Sith Code",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Sith Code",
+      "quote": "Through passion, I gain strength.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0303",
+      "era": "Legends / Games",
+      "source": "Sith Code",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Sith Code",
+      "quote": "Through victory, my chains are broken.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0304",
+      "era": "Legends / Games",
+      "source": "Sith Code",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Sith Code",
+      "quote": "The Force shall free me.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0305",
+      "era": "Legends / Games",
+      "source": "Star Wars: Knights of the Old Republic II",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Kreia",
+      "quote": "It is such a quiet thing, to fall.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0306",
+      "era": "Legends / Games",
+      "source": "Star Wars: The Old Republic",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Darth Malgus",
+      "quote": "The Empire is war made manifest.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0307",
+      "era": "Legends / Games",
+      "source": "Star Wars Jedi: Fallen Order",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Cal Kestis",
+      "quote": "Trust only in the Force.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0308",
+      "era": "Legends / Games",
+      "source": "Star Wars Jedi: Fallen Order",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Cere Junda",
+      "quote": "Failure is not the end.",
+      "quote_type": "direct_short"
+    },
+    {
+      "id": "swq_0309",
+      "era": "Legends / Games",
+      "source": "Star Wars Jedi: Survivor",
+      "medium": "Game/Expanded Universe",
+      "continuity": "Mixed/Legends",
+      "character": "Cal Kestis",
+      "quote": "We fight to survive.",
+      "quote_type": "direct_short"
+    }
+  ],
+  "indexes": {
+    "by_character": {
+      "Admiral Ackbar": [
+        "swq_0119"
+      ],
+      "Ahsoka Tano": [
+        "swq_0222",
+        "swq_0226",
+        "swq_0227",
+        "swq_0230",
+        "swq_0248",
+        "swq_0249",
+        "swq_0283",
+        "swq_0286",
+        "swq_0287"
+      ],
+      "Anakin Skywalker": [
+        "swq_0004",
+        "swq_0012",
+        "swq_0017",
+        "swq_0022",
+        "swq_0024",
+        "swq_0029",
+        "swq_0030",
+        "swq_0036",
+        "swq_0038"
+      ],
+      "Baylan Skoll": [
+        "swq_0285"
+      ],
+      "Baze Malbus": [
+        "swq_0202"
+      ],
+      "Ben Solo": [
+        "swq_0182"
+      ],
+      "Bo-Katan Kryze": [
+        "swq_0250"
+      ],
+      "Boba Fett": [
+        "swq_0252",
+        "swq_0253",
+        "swq_0254",
+        "swq_0255",
+        "swq_0258"
+      ],
+      "C-3PO": [
+        "swq_0064",
+        "swq_0080",
+        "swq_0081",
+        "swq_0082",
+        "swq_0117",
+        "swq_0125",
+        "swq_0175"
+      ],
+      "Cal Kestis": [
+        "swq_0307",
+        "swq_0309"
+      ],
+      "Captain Rex": [
+        "swq_0219",
+        "swq_0220"
+      ],
+      "Cassian Andor": [
+        "swq_0197"
+      ],
+      "Cere Junda": [
+        "swq_0308"
+      ],
+      "Chewbacca": [
+        "swq_0288",
+        "swq_0289",
+        "swq_0290",
+        "swq_0291",
+        "swq_0292",
+        "swq_0293",
+        "swq_0294",
+        "swq_0295",
+        "swq_0296",
+        "swq_0297"
+      ],
+      "Chirrut Îmwe": [
+        "swq_0190",
+        "swq_0191",
+        "swq_0196",
+        "swq_0201",
+        "swq_0203",
+        "swq_0206"
+      ],
+      "Clone Trooper Sinker": [
+        "swq_0221"
+      ],
+      "Clone Troopers": [
+        "swq_0217",
+        "swq_0281"
+      ],
+      "Cobb Vanth": [
+        "swq_0244"
+      ],
+      "Count Dooku": [
+        "swq_0048"
+      ],
+      "Crosshair": [
+        "swq_0280"
+      ],
+      "Darth Malgus": [
+        "swq_0306"
+      ],
+      "Darth Maul": [
+        "swq_0008",
+        "swq_0223"
+      ],
+      "Darth Sidious": [
+        "swq_0003",
+        "swq_0010",
+        "swq_0041",
+        "swq_0042",
+        "swq_0043",
+        "swq_0044",
+        "swq_0046",
+        "swq_0053",
+        "swq_0054",
+        "swq_0056",
+        "swq_0121",
+        "swq_0122",
+        "swq_0124",
+        "swq_0133",
+        "swq_0138",
+        "swq_0177"
+      ],
+      "Darth Vader": [
+        "swq_0040",
+        "swq_0049",
+        "swq_0051",
+        "swq_0055",
+        "swq_0058",
+        "swq_0063",
+        "swq_0074",
+        "swq_0075",
+        "swq_0079",
+        "swq_0089",
+        "swq_0101",
+        "swq_0102",
+        "swq_0103",
+        "swq_0104",
+        "swq_0105",
+        "swq_0106",
+        "swq_0128",
+        "swq_0129",
+        "swq_0131",
+        "swq_0134",
+        "swq_0198",
+        "swq_0228",
+        "swq_0229",
+        "swq_0260",
+        "swq_0262",
+        "swq_0263"
+      ],
+      "Dedra Meero": [
+        "swq_0272"
+      ],
+      "Din Djarin": [
+        "swq_0237",
+        "swq_0239",
+        "swq_0240",
+        "swq_0241",
+        "swq_0242",
+        "swq_0243",
+        "swq_0247",
+        "swq_0256"
+      ],
+      "Ezra Bridger": [
+        "swq_0236"
+      ],
+      "FN-2199": [
+        "swq_0144"
+      ],
+      "Fennec Shand": [
+        "swq_0257"
+      ],
+      "Finn": [
+        "swq_0152",
+        "swq_0153",
+        "swq_0154",
+        "swq_0155",
+        "swq_0168",
+        "swq_0174"
+      ],
+      "Fives": [
+        "swq_0218"
+      ],
+      "General Grievous": [
+        "swq_0033",
+        "swq_0034"
+      ],
+      "Gold Five": [
+        "swq_0066"
+      ],
+      "HK-47": [
+        "swq_0299",
+        "swq_0300"
+      ],
+      "Han Solo": [
+        "swq_0065",
+        "swq_0067",
+        "swq_0072",
+        "swq_0073",
+        "swq_0083",
+        "swq_0084",
+        "swq_0085",
+        "swq_0086",
+        "swq_0091",
+        "swq_0092",
+        "swq_0093",
+        "swq_0095",
+        "swq_0116",
+        "swq_0118",
+        "swq_0136",
+        "swq_0137",
+        "swq_0139",
+        "swq_0140",
+        "swq_0146",
+        "swq_0147",
+        "swq_0183",
+        "swq_0207",
+        "swq_0211",
+        "swq_0212",
+        "swq_0215"
+      ],
+      "Hera Syndulla": [
+        "swq_0235"
+      ],
+      "Hunter": [
+        "swq_0277",
+        "swq_0278",
+        "swq_0279"
+      ],
+      "Huyang": [
+        "swq_0284"
+      ],
+      "IG-11": [
+        "swq_0246"
+      ],
+      "Jar Jar Binks": [
+        "swq_0005",
+        "swq_0006",
+        "swq_0007"
+      ],
+      "Jyn Erso": [
+        "swq_0192",
+        "swq_0193",
+        "swq_0199"
+      ],
+      "K-2SO": [
+        "swq_0195",
+        "swq_0204",
+        "swq_0205"
+      ],
+      "Kanan Jarrus": [
+        "swq_0233",
+        "swq_0234"
+      ],
+      "Karis Nemik": [
+        "swq_0274"
+      ],
+      "Kino Loy": [
+        "swq_0267",
+        "swq_0268",
+        "swq_0269",
+        "swq_0276"
+      ],
+      "Kreia": [
+        "swq_0298",
+        "swq_0305"
+      ],
+      "Kuiil": [
+        "swq_0238"
+      ],
+      "Kylo Ren": [
+        "swq_0141",
+        "swq_0150",
+        "swq_0156",
+        "swq_0167"
+      ],
+      "L3-37": [
+        "swq_0210"
+      ],
+      "Lando Calrissian": [
+        "swq_0135",
+        "swq_0188",
+        "swq_0209",
+        "swq_0213"
+      ],
+      "Leia Organa": [
+        "swq_0180",
+        "swq_0184",
+        "swq_0200",
+        "swq_0266"
+      ],
+      "Lor San Tekka": [
+        "swq_0151"
+      ],
+      "Luke Skywalker": [
+        "swq_0071",
+        "swq_0110",
+        "swq_0120",
+        "swq_0123",
+        "swq_0127",
+        "swq_0130",
+        "swq_0132",
+        "swq_0158",
+        "swq_0159",
+        "swq_0160",
+        "swq_0162",
+        "swq_0163",
+        "swq_0169",
+        "swq_0170",
+        "swq_0171",
+        "swq_0179",
+        "swq_0185"
+      ],
+      "Luthen Rael": [
+        "swq_0270"
+      ],
+      "Maarva Andor": [
+        "swq_0271",
+        "swq_0273",
+        "swq_0275"
+      ],
+      "Mace Windu": [
+        "swq_0014",
+        "swq_0019"
+      ],
+      "Maz Kanata": [
+        "swq_0142",
+        "swq_0148"
+      ],
+      "Moff Gideon": [
+        "swq_0251"
+      ],
+      "Mon Mothma": [
+        "swq_0126"
+      ],
+      "Obi-Wan Kenobi": [
+        "swq_0020",
+        "swq_0021",
+        "swq_0028",
+        "swq_0031",
+        "swq_0032",
+        "swq_0035",
+        "swq_0037",
+        "swq_0039",
+        "swq_0052",
+        "swq_0059",
+        "swq_0060",
+        "swq_0061",
+        "swq_0062",
+        "swq_0076",
+        "swq_0077",
+        "swq_0078",
+        "swq_0224",
+        "swq_0259",
+        "swq_0261",
+        "swq_0264",
+        "swq_0265"
+      ],
+      "Padmé Amidala": [
+        "swq_0023",
+        "swq_0045",
+        "swq_0050"
+      ],
+      "Poe Dameron": [
+        "swq_0172",
+        "swq_0173"
+      ],
+      "Princess Leia Organa": [
+        "swq_0057",
+        "swq_0068",
+        "swq_0069",
+        "swq_0070",
+        "swq_0087",
+        "swq_0090",
+        "swq_0094",
+        "swq_0107",
+        "swq_0115"
+      ],
+      "Qi'ra": [
+        "swq_0214"
+      ],
+      "Qui-Gon Jinn": [
+        "swq_0002",
+        "swq_0011",
+        "swq_0013",
+        "swq_0015",
+        "swq_0016"
+      ],
+      "Rey": [
+        "swq_0143",
+        "swq_0145",
+        "swq_0149",
+        "swq_0176",
+        "swq_0178",
+        "swq_0181",
+        "swq_0186",
+        "swq_0187",
+        "swq_0189"
+      ],
+      "Rose Tico": [
+        "swq_0164",
+        "swq_0165"
+      ],
+      "Saw Gerrera": [
+        "swq_0194"
+      ],
+      "Sith Code": [
+        "swq_0301",
+        "swq_0302",
+        "swq_0303",
+        "swq_0304"
+      ],
+      "Supreme Leader Snoke": [
+        "swq_0166"
+      ],
+      "Tech": [
+        "swq_0282"
+      ],
+      "The Armorer": [
+        "swq_0245"
+      ],
+      "The Bendu": [
+        "swq_0232"
+      ],
+      "The Grand Inquisitor": [
+        "swq_0231"
+      ],
+      "Tobias Beckett": [
+        "swq_0208",
+        "swq_0216"
+      ],
+      "Yoda": [
+        "swq_0001",
+        "swq_0009",
+        "swq_0018",
+        "swq_0025",
+        "swq_0026",
+        "swq_0027",
+        "swq_0047",
+        "swq_0088",
+        "swq_0096",
+        "swq_0097",
+        "swq_0098",
+        "swq_0099",
+        "swq_0100",
+        "swq_0108",
+        "swq_0109",
+        "swq_0111",
+        "swq_0112",
+        "swq_0113",
+        "swq_0114",
+        "swq_0157",
+        "swq_0161",
+        "swq_0225"
+      ]
+    },
+    "by_source": {
+      "Ahsoka": [
+        "swq_0283",
+        "swq_0284",
+        "swq_0285",
+        "swq_0286",
+        "swq_0287"
+      ],
+      "Andor": [
+        "swq_0267",
+        "swq_0268",
+        "swq_0269",
+        "swq_0270",
+        "swq_0271",
+        "swq_0272",
+        "swq_0273",
+        "swq_0274",
+        "swq_0275",
+        "swq_0276"
+      ],
+      "Episode I: The Phantom Menace": [
+        "swq_0001",
+        "swq_0002",
+        "swq_0003",
+        "swq_0004",
+        "swq_0005",
+        "swq_0006",
+        "swq_0007",
+        "swq_0008",
+        "swq_0009",
+        "swq_0010",
+        "swq_0011",
+        "swq_0012",
+        "swq_0013",
+        "swq_0014",
+        "swq_0015",
+        "swq_0016"
+      ],
+      "Episode II: Attack of the Clones": [
+        "swq_0017",
+        "swq_0018",
+        "swq_0019",
+        "swq_0020",
+        "swq_0021",
+        "swq_0022",
+        "swq_0023",
+        "swq_0024",
+        "swq_0025",
+        "swq_0026",
+        "swq_0027",
+        "swq_0028",
+        "swq_0029",
+        "swq_0030",
+        "swq_0031"
+      ],
+      "Episode III: Revenge of the Sith": [
+        "swq_0032",
+        "swq_0033",
+        "swq_0034",
+        "swq_0035",
+        "swq_0036",
+        "swq_0037",
+        "swq_0038",
+        "swq_0039",
+        "swq_0040",
+        "swq_0041",
+        "swq_0042",
+        "swq_0043",
+        "swq_0044",
+        "swq_0045",
+        "swq_0046",
+        "swq_0047",
+        "swq_0048",
+        "swq_0049",
+        "swq_0050",
+        "swq_0051",
+        "swq_0052",
+        "swq_0053",
+        "swq_0054",
+        "swq_0055",
+        "swq_0056"
+      ],
+      "Episode IV: A New Hope": [
+        "swq_0057",
+        "swq_0058",
+        "swq_0059",
+        "swq_0060",
+        "swq_0061",
+        "swq_0062",
+        "swq_0063",
+        "swq_0064",
+        "swq_0065",
+        "swq_0066",
+        "swq_0067",
+        "swq_0068",
+        "swq_0069",
+        "swq_0070",
+        "swq_0071",
+        "swq_0072",
+        "swq_0073",
+        "swq_0074",
+        "swq_0075",
+        "swq_0076",
+        "swq_0077",
+        "swq_0078",
+        "swq_0079",
+        "swq_0080",
+        "swq_0081",
+        "swq_0082",
+        "swq_0083",
+        "swq_0084",
+        "swq_0085",
+        "swq_0086",
+        "swq_0087"
+      ],
+      "Episode IX: The Rise of Skywalker": [
+        "swq_0173",
+        "swq_0174",
+        "swq_0175",
+        "swq_0176",
+        "swq_0177",
+        "swq_0178",
+        "swq_0179",
+        "swq_0180",
+        "swq_0181",
+        "swq_0182",
+        "swq_0183",
+        "swq_0184",
+        "swq_0185",
+        "swq_0186",
+        "swq_0187",
+        "swq_0188",
+        "swq_0189"
+      ],
+      "Episode V: The Empire Strikes Back": [
+        "swq_0088",
+        "swq_0089",
+        "swq_0090",
+        "swq_0091",
+        "swq_0092",
+        "swq_0093",
+        "swq_0094",
+        "swq_0095",
+        "swq_0096",
+        "swq_0097",
+        "swq_0098",
+        "swq_0099",
+        "swq_0100",
+        "swq_0101",
+        "swq_0102",
+        "swq_0103",
+        "swq_0104",
+        "swq_0105",
+        "swq_0106",
+        "swq_0107",
+        "swq_0108",
+        "swq_0109",
+        "swq_0110",
+        "swq_0111",
+        "swq_0112",
+        "swq_0113",
+        "swq_0114",
+        "swq_0115",
+        "swq_0116",
+        "swq_0117",
+        "swq_0118"
+      ],
+      "Episode VI: Return of the Jedi": [
+        "swq_0119",
+        "swq_0120",
+        "swq_0121",
+        "swq_0122",
+        "swq_0123",
+        "swq_0124",
+        "swq_0125",
+        "swq_0126",
+        "swq_0127",
+        "swq_0128",
+        "swq_0129",
+        "swq_0130",
+        "swq_0131",
+        "swq_0132",
+        "swq_0133",
+        "swq_0134",
+        "swq_0135",
+        "swq_0136",
+        "swq_0137",
+        "swq_0138"
+      ],
+      "Episode VII: The Force Awakens": [
+        "swq_0139",
+        "swq_0140",
+        "swq_0141",
+        "swq_0142",
+        "swq_0143",
+        "swq_0144",
+        "swq_0145",
+        "swq_0146",
+        "swq_0147",
+        "swq_0148",
+        "swq_0149",
+        "swq_0150",
+        "swq_0151",
+        "swq_0152",
+        "swq_0153",
+        "swq_0154",
+        "swq_0155"
+      ],
+      "Episode VIII: The Last Jedi": [
+        "swq_0156",
+        "swq_0157",
+        "swq_0158",
+        "swq_0159",
+        "swq_0160",
+        "swq_0161",
+        "swq_0162",
+        "swq_0163",
+        "swq_0164",
+        "swq_0165",
+        "swq_0166",
+        "swq_0167",
+        "swq_0168",
+        "swq_0169",
+        "swq_0170",
+        "swq_0171",
+        "swq_0172"
+      ],
+      "Multiple Star Wars appearances": [
+        "swq_0288",
+        "swq_0289",
+        "swq_0290",
+        "swq_0291",
+        "swq_0292",
+        "swq_0293",
+        "swq_0294",
+        "swq_0295",
+        "swq_0296",
+        "swq_0297"
+      ],
+      "Obi-Wan Kenobi": [
+        "swq_0259",
+        "swq_0260",
+        "swq_0261",
+        "swq_0262",
+        "swq_0263",
+        "swq_0264",
+        "swq_0265",
+        "swq_0266"
+      ],
+      "Rogue One: A Star Wars Story": [
+        "swq_0190",
+        "swq_0191",
+        "swq_0192",
+        "swq_0193",
+        "swq_0194",
+        "swq_0195",
+        "swq_0196",
+        "swq_0197",
+        "swq_0198",
+        "swq_0199",
+        "swq_0200",
+        "swq_0201",
+        "swq_0202",
+        "swq_0203",
+        "swq_0204",
+        "swq_0205",
+        "swq_0206"
+      ],
+      "Sith Code": [
+        "swq_0301",
+        "swq_0302",
+        "swq_0303",
+        "swq_0304"
+      ],
+      "Solo: A Star Wars Story": [
+        "swq_0207",
+        "swq_0208",
+        "swq_0209",
+        "swq_0210",
+        "swq_0211",
+        "swq_0212",
+        "swq_0213",
+        "swq_0214",
+        "swq_0215",
+        "swq_0216"
+      ],
+      "Star Wars Jedi: Fallen Order": [
+        "swq_0307",
+        "swq_0308"
+      ],
+      "Star Wars Jedi: Survivor": [
+        "swq_0309"
+      ],
+      "Star Wars Rebels": [
+        "swq_0227",
+        "swq_0228",
+        "swq_0229",
+        "swq_0230",
+        "swq_0231",
+        "swq_0232",
+        "swq_0233",
+        "swq_0234",
+        "swq_0235",
+        "swq_0236"
+      ],
+      "Star Wars: Knights of the Old Republic": [
+        "swq_0299",
+        "swq_0300"
+      ],
+      "Star Wars: Knights of the Old Republic II": [
+        "swq_0298",
+        "swq_0305"
+      ],
+      "Star Wars: The Bad Batch": [
+        "swq_0277",
+        "swq_0278",
+        "swq_0279",
+        "swq_0280",
+        "swq_0281",
+        "swq_0282"
+      ],
+      "Star Wars: The Clone Wars": [
+        "swq_0217",
+        "swq_0218",
+        "swq_0219",
+        "swq_0220",
+        "swq_0221",
+        "swq_0222",
+        "swq_0223",
+        "swq_0224",
+        "swq_0225",
+        "swq_0226"
+      ],
+      "Star Wars: The Old Republic": [
+        "swq_0306"
+      ],
+      "The Book of Boba Fett": [
+        "swq_0252",
+        "swq_0253",
+        "swq_0254",
+        "swq_0255",
+        "swq_0256",
+        "swq_0257",
+        "swq_0258"
+      ],
+      "The Mandalorian": [
+        "swq_0237",
+        "swq_0238",
+        "swq_0239",
+        "swq_0240",
+        "swq_0241",
+        "swq_0242",
+        "swq_0243",
+        "swq_0244",
+        "swq_0245",
+        "swq_0246",
+        "swq_0247",
+        "swq_0248",
+        "swq_0249",
+        "swq_0250",
+        "swq_0251"
+      ]
+    }
+  }
+}

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fallback_quote() {
+    printf '%s\n' 'The Force will be with you. - Obi-Wan Kenobi'
+}
+
+current_theme() {
+    local state_file="${XDG_STATE_HOME:-$HOME/.local/state}/hyde/staterc"
+    if [[ -r "$state_file" ]]; then
+        sed -n 's/^HYDE_THEME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$state_file" | tail -n 1
+    fi
+}
+
+theme_name="${*:-}"
+if [[ -z "$theme_name" ]]; then
+    theme_name="$(current_theme || true)"
+fi
+theme_name="${theme_name#\"}"
+theme_name="${theme_name%\"}"
+[[ -n "$theme_name" ]] || theme_name="MADPANDA Dark Zen"
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+quote_file="${MAD_LOCK_QUOTE_FILE:-$theme_root/$theme_name/hyprlock/star_wars_quotes_curated.json}"
+
+if [[ ! -r "$quote_file" ]] || ! command -v jq >/dev/null 2>&1; then
+    fallback_quote
+    exit 0
+fi
+
+seed="$RANDOM"
+quote="$(
+    jq -r --argjson seed "$seed" '
+        [.quotes[]? | select((.quote | type == "string" and length > 0) and (.character | type == "string" and length > 0))] as $quotes
+        | if ($quotes | length) == 0 then empty else $quotes[$seed % ($quotes | length)] | "\(.quote) - \(.character)" end
+    ' "$quote_file" 2>/dev/null || true
+)"
+
+quote="$(
+    printf '%s' "$quote" |
+        tr '\n\t' '  ' |
+        sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//'
+)"
+
+if [[ -n "$quote" ]]; then
+    printf '%s\n' "$quote"
+else
+    fallback_quote
+fi

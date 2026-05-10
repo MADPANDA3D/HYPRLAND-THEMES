@@ -1,0 +1,497 @@
+#!/usr/bin/env bash
+set -u
+
+sound_bin="${MAD_THEME_SOUND_BIN:-$HOME/.local/bin/mad-theme-sound}"
+rgb_bin="${MAD_RGB_THEME_BIN:-$HOME/.local/bin/mad-rgb-theme}"
+tile_bin="${MAD_LOCK_TILES_BIN:-$HOME/.local/bin/mad-lock-tiles}"
+widget_bin="${MAD_LOCK_WIDGETS_BIN:-$HOME/.local/bin/mad-lock-widgets}"
+wallpaper_bin="${MAD_LOCK_WALLPAPER_BIN:-$HOME/.local/bin/mad-lock-wallpaper}"
+surface_bin="${MAD_LOCK_SURFACES_BIN:-$HOME/.local/bin/mad-lock-surfaces}"
+lock_config="${MAD_HYPRLOCK_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock.conf}"
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+runtime_root="${XDG_RUNTIME_DIR:-/tmp}/madpanda-lock-session"
+state_root="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/lock-session"
+run_root="$state_root/mad-lock-session-$(date +%Y%m%dT%H%M%S%z)-$$"
+log_file="$run_root/session.log"
+single_lock="$runtime_root/session.lock"
+transparent_layout="${MAD_HYPRLOCK_TRANSPARENT_LAYOUT:-$config_home/hypr/hyprlock/MADPANDA-Dark-Zen-transparent-widgets.conf}"
+transparent_config="$runtime_root/hyprlock-transparent.conf"
+surface_hide_delay_ms="${MAD_LOCK_SURFACE_HIDE_DELAY_MS:-180}"
+lock_acquire_timeout_ms="${MAD_LOCK_ACQUIRE_TIMEOUT_MS:-3000}"
+lock_process_ready_ms="${MAD_LOCK_PROCESS_READY_MS:-900}"
+overlay_ready_delay_ms="${MAD_LOCK_OVERLAY_READY_MS:-300}"
+lock_mode="${MAD_LOCK_SESSION_MODE:-staged}"
+fallback_reason=""
+tiles_hidden=0
+wallpapers_applied=0
+surfaces_hidden=0
+xray_changed=0
+xray_previous=""
+dry_run=0
+cleanup_only=0
+single_lock_fd_open=0
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-lock-session [--dry-run] [--cleanup-stale] [hyprlock args...]
+
+Starts the Dark Zen lock flow as a single instance. The default staged mode
+uses Dark Zen's transparent widget layout and restores the desktop on unlock.
+Set MAD_LOCK_SESSION_MODE=safe for a direct Hyprlock fallback.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        --cleanup-stale)
+            cleanup_only=1
+            shift
+            ;;
+        -h|--help|help)
+            usage
+            exit 0
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+cmd_exists() {
+    [[ -x "$1" ]] || command -v "$1" >/dev/null 2>&1
+}
+
+log() {
+    mkdir -p "$run_root"
+    printf '%s %s\n' "$(date --iso-8601=seconds)" "$*" >>"$log_file"
+}
+
+notify_failure() {
+    local body="$1"
+    log "notify_failure=$body"
+    command -v notify-send >/dev/null 2>&1 && notify-send -a MADPANDA "Dark Zen lock failed" "$body" >/dev/null 2>&1
+}
+
+lock_hint_value() {
+    [[ -n "${XDG_SESSION_ID:-}" ]] || return 1
+    command -v loginctl >/dev/null 2>&1 || return 1
+    loginctl show-session "$XDG_SESSION_ID" -p LockedHint --value 2>/dev/null
+}
+
+session_locked() {
+    [[ "$(lock_hint_value || true)" == "yes" ]]
+}
+
+current_xray() {
+    hyprctl getoption misc:session_lock_xray 2>/dev/null | awk '/^int:/ { print $2; exit }'
+}
+
+set_xray() {
+    local value="$1"
+    hyprctl keyword misc:session_lock_xray "$value" >/dev/null 2>&1
+}
+
+run_without_single_lock_fd() {
+    if [[ "$single_lock_fd_open" == "1" ]]; then
+        (exec 9>&-; "$@")
+    else
+        "$@"
+    fi
+}
+
+sleep_ms() {
+    local ms="$1"
+    [[ "$ms" =~ ^[0-9]+$ ]] || ms=180
+    sleep "$(printf '%d.%03d' "$((ms / 1000))" "$((ms % 1000))")"
+}
+
+kill_pid_if_alive() {
+    local pid="$1"
+    [[ -n "$pid" ]] || return 0
+    [[ "$pid" == "$$" || "$pid" == "${BASHPID:-}" || "$pid" == "${PPID:-}" ]] && return 0
+    kill -0 "$pid" >/dev/null 2>&1 || return 0
+    kill "$pid" >/dev/null 2>&1 || true
+}
+
+lock_process_pids() {
+    pgrep -x hyprlock || true
+}
+
+lock_session_pids() {
+    ps -eo pid=,ppid=,comm=,args= | awk -v self="$$" '
+        $1 == self || $2 == self { next }
+        $3 == "mad-lock-session" { print $1; next }
+        $3 == "bash" && $0 ~ /(^|[[:space:]])\/[^[:space:]]*mad-lock-session([[:space:]]|$)/ { print $1 }
+    '
+}
+
+cleanup_stale_locks() {
+    local pid stale_count=0
+
+    if session_locked; then
+        log "stale_cleanup=skipped session_locked=yes"
+        [[ "$dry_run" == "1" ]] && printf 'staleCleanup=skipped sessionLocked=yes\n'
+        return 0
+    fi
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'staleCleanup=sessionLocked=no\n'
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            printf 'staleHyprlockPid=%s\n' "$pid"
+        done < <(lock_process_pids)
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            [[ "$pid" == "$$" || "$pid" == "${BASHPID:-}" ]] && continue
+            printf 'staleLockSessionPid=%s\n' "$pid"
+        done < <(lock_session_pids)
+        return 0
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        stale_count=$((stale_count + 1))
+        log "stale_hyprlock=kill pid=$pid"
+        kill_pid_if_alive "$pid"
+    done < <(lock_process_pids)
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" || "$pid" == "${BASHPID:-}" ]] && continue
+        stale_count=$((stale_count + 1))
+        log "stale_lock_session=kill pid=$pid"
+        kill_pid_if_alive "$pid"
+    done < <(lock_session_pids)
+
+    if ((stale_count > 0)); then
+        sleep 0.25
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            log "stale_hyprlock=kill9 pid=$pid"
+            kill -9 "$pid" >/dev/null 2>&1 || true
+        done < <(lock_process_pids)
+        while IFS= read -r pid; do
+            [[ -n "$pid" ]] || continue
+            [[ "$pid" == "$$" || "$pid" == "${BASHPID:-}" ]] && continue
+            log "stale_lock_session=kill9 pid=$pid"
+            kill -9 "$pid" >/dev/null 2>&1 || true
+        done < <(lock_session_pids)
+        cmd_exists "$surface_bin" && run_without_single_lock_fd "$surface_bin" restore >/dev/null 2>&1 || true
+        cmd_exists "$tile_bin" && run_without_single_lock_fd "$tile_bin" restore >/dev/null 2>&1 || true
+        cmd_exists "$wallpaper_bin" && run_without_single_lock_fd "$wallpaper_bin" restore >/dev/null 2>&1 || true
+    fi
+    log "stale_cleanup=done count=$stale_count"
+}
+
+restore_session() {
+    local pids=() pid
+    log "restore_session=start tiles=$tiles_hidden wallpapers=$wallpapers_applied surfaces=$surfaces_hidden xray=$xray_changed"
+    if [[ "$surfaces_hidden" == "1" ]] && cmd_exists "$surface_bin"; then
+        run_without_single_lock_fd "$surface_bin" restore >/dev/null 2>&1 &
+        pids+=("$!")
+    fi
+    if [[ "$wallpapers_applied" == "1" ]] && cmd_exists "$wallpaper_bin"; then
+        run_without_single_lock_fd "$wallpaper_bin" restore >/dev/null 2>&1 &
+        pids+=("$!")
+    fi
+    if [[ "$tiles_hidden" == "1" ]] && cmd_exists "$tile_bin"; then
+        run_without_single_lock_fd "$tile_bin" restore >/dev/null 2>&1 &
+        pids+=("$!")
+    fi
+    for pid in "${pids[@]}"; do
+        wait "$pid" >/dev/null 2>&1 || true
+    done
+    if [[ "$xray_changed" == "1" && -n "$xray_previous" ]]; then
+        set_xray "$xray_previous" || true
+    fi
+    log "restore_session=done"
+}
+
+build_transparent_config() {
+    [[ -r "$transparent_layout" ]] || return 1
+    mkdir -p "$runtime_root"
+    {
+        printf '# Generated by mad-lock-session. Active Hyprlock config is not changed.\n'
+        printf '$LAYOUT_PATH=%s\n' "$transparent_layout"
+        printf '$BACKGROUND_PATH = %s/hyde/wall.set.png\n' "$cache_home"
+        printf '$HYPRLOCK_BACKGROUND = %s/hyde/wallpapers/hyprlock.png\n' "$cache_home"
+        printf '$MPRIS_IMAGE = %s/hyde/landing/mpris.png\n' "$cache_home"
+        printf '$PROFILE_IMAGE = %s/hyde/landing/profile.png\n' "$cache_home"
+        printf '$BATTERY_ICON = battery.sh icon\n'
+        printf 'source = %s/hypr/themes/colors.conf\n' "$config_home"
+        printf '\n'
+        printf 'source = %s\n' "$transparent_layout"
+    } >"$transparent_config"
+}
+
+wait_for_lock_acquired() {
+    local pid="$1"
+    local elapsed=0
+    local hint=""
+
+    hint="$(lock_hint_value || true)"
+    if [[ -z "$hint" ]]; then
+        log "lock_hint=unavailable; assuming process liveness"
+        sleep_ms "$lock_process_ready_ms"
+        kill -0 "$pid" >/dev/null 2>&1
+        return
+    fi
+
+    while ((elapsed < lock_acquire_timeout_ms)); do
+        kill -0 "$pid" >/dev/null 2>&1 || return 1
+        [[ "$(lock_hint_value || true)" == "yes" ]] && return 0
+        if ((elapsed >= lock_process_ready_ms)); then
+            log "lock_hint=not_confirmed value=$(lock_hint_value || printf unknown) fallback=process_alive ready_ms=$lock_process_ready_ms"
+            return 0
+        fi
+        sleep_ms 100
+        elapsed=$((elapsed + 100))
+    done
+    return 1
+}
+
+wait_for_overlay_ready() {
+    local pid="$1"
+    sleep_ms "$overlay_ready_delay_ms"
+    kill -0 "$pid" >/dev/null 2>&1
+}
+
+acquire_single_instance() {
+    mkdir -p "$runtime_root" "$run_root"
+    exec 9>"$single_lock"
+    single_lock_fd_open=1
+    if command -v flock >/dev/null 2>&1; then
+        if ! flock -n 9; then
+            log "single_instance=busy"
+            if [[ "$dry_run" == "1" ]]; then
+                printf 'singleInstance=busy\n'
+            fi
+            exit 1
+        fi
+    fi
+    log "single_instance=acquired"
+}
+
+mkdir -p "$runtime_root" "$run_root"
+
+if [[ "$dry_run" == "1" ]]; then
+    printf 'lockLog=%s\n' "$log_file"
+    printf 'singleInstanceLock=%s\n' "$single_lock"
+fi
+
+acquire_single_instance
+cleanup_stale_locks
+if [[ "$cleanup_only" == "1" ]]; then
+    log "cleanup_only=done"
+    exit 0
+fi
+
+if cmd_exists "$widget_bin"; then
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'widgets=%s prepare\n' "$widget_bin"
+    else
+        log "widgets=prepare"
+        if ! run_without_single_lock_fd "$widget_bin" prepare >>"$log_file" 2>&1; then
+            log "widgets=prepare_failed"
+        fi
+    fi
+fi
+
+if [[ "$lock_mode" != "staged" ]]; then
+    if [[ "$dry_run" == "1" ]]; then
+        printf 'mode=safe-direct\n'
+        printf 'lockConfig=%s\n' "$lock_config"
+        printf 'lockAcquireTimeoutMs=%s\n' "$lock_acquire_timeout_ms"
+        printf 'lockProcessReadyMs=%s\n' "$lock_process_ready_ms"
+        printf 'lockAcquireFallback=process-alive-when-locked-hint-is-not-confirmed\n'
+        printf 'command=hyprlock --quiet --config %q --immediate-render --no-fade-in' "$lock_config"
+        if [[ $# -gt 0 ]]; then
+            printf ' %q' "$@"
+        fi
+        printf ' &\n'
+        printf 'command=wait-for-lock-acquired timeout_ms=%s\n' "$lock_acquire_timeout_ms"
+        printf 'soundAfterLock=%s lock\n' "$sound_bin"
+        printf 'command=wait hyprlock\n'
+        exit 0
+    fi
+
+    log "mode=safe_direct"
+    log "lock_launch=start config=$lock_config"
+    (exec 9>&-; exec hyprlock --quiet --config "$lock_config" --immediate-render --no-fade-in "$@" >>"$log_file" 2>&1) &
+    lock_pid="$!"
+    log "lock_launch=pid pid=$lock_pid"
+
+    if ! wait_for_lock_acquired "$lock_pid"; then
+        log "lock_acquire=failed pid=$lock_pid"
+        kill_pid_if_alive "$lock_pid"
+        notify_failure "Hyprlock did not stay alive long enough to lock. Safe mode did not change desktop surfaces."
+        exit 1
+    fi
+    log "lock_acquire=done pid=$lock_pid"
+
+    if cmd_exists "$sound_bin"; then
+        log "sound=lock"
+        run_without_single_lock_fd "$sound_bin" lock >>"$log_file" 2>&1 &
+    fi
+
+    wait "$lock_pid"
+    lock_status="$?"
+    log "lock_wait=done status=$lock_status"
+    exit "$lock_status"
+fi
+
+lock_target="$lock_config"
+transparent_ready=0
+
+if ! build_transparent_config; then
+    fallback_reason="transparent layout unavailable"
+elif ! cmd_exists "$tile_bin"; then
+    fallback_reason="mad-lock-tiles unavailable"
+elif ! cmd_exists "$surface_bin"; then
+    fallback_reason="mad-lock-surfaces unavailable"
+else
+    transparent_ready=1
+    lock_target="$transparent_config"
+fi
+
+if [[ "$dry_run" == "1" ]]; then
+    if [[ "$transparent_ready" == "1" ]]; then
+        if cmd_exists "$wallpaper_bin"; then
+            printf 'wallpaper=%s apply --dry-run\n' "$wallpaper_bin"
+            "$wallpaper_bin" apply --dry-run || true
+        else
+            printf 'wallpaper=unavailable\n'
+        fi
+        printf 'xray=hyprctl keyword misc:session_lock_xray 1\n'
+    fi
+    printf 'lockConfig=%s\n' "$lock_target"
+    [[ -n "$fallback_reason" ]] && printf 'fallbackReason=%s\n' "$fallback_reason"
+    printf 'lockLaunch=background\n'
+    printf 'overlayReadyDelayMs=%s\n' "$overlay_ready_delay_ms"
+    printf 'lockAcquireTimeoutMs=%s\n' "$lock_acquire_timeout_ms"
+    printf 'lockProcessReadyMs=%s\n' "$lock_process_ready_ms"
+    printf 'lockAcquireFallback=process-alive-when-locked-hint-is-not-confirmed\n'
+    printf 'soundAfterOverlay=%s lock\n' "$sound_bin"
+    printf 'rgbAfterOverlay=%s lock\n' "$rgb_bin"
+    if [[ "$transparent_ready" == "1" ]]; then
+        printf 'parallelAfterOverlay=sound rgb tiles surfaces\n'
+    else
+        printf 'parallelAfterOverlay=sound rgb\n'
+    fi
+    printf 'command=hyprlock --quiet --config %q --immediate-render --no-fade-in' "$lock_target"
+    if [[ $# -gt 0 ]]; then
+        printf ' %q' "$@"
+    fi
+    printf ' &\n'
+    printf 'command=wait-overlay-ready delay_ms=%s\n' "$overlay_ready_delay_ms"
+    if [[ "$transparent_ready" == "1" ]]; then
+        printf 'tiles=%s hide --dry-run\n' "$tile_bin"
+        "$tile_bin" hide --dry-run || true
+        printf 'surfaces=%s hide --dry-run\n' "$surface_bin"
+        "$surface_bin" hide --dry-run || true
+    fi
+    printf 'command=wait-for-lock-acquired timeout_ms=%s\n' "$lock_acquire_timeout_ms"
+    printf 'command=wait hyprlock\n'
+    printf 'restore=parallel surfaces wallpapers tiles xray\n'
+    exit 0
+fi
+
+if [[ "$transparent_ready" == "1" ]]; then
+    run_without_single_lock_fd "$surface_bin" restore >>"$log_file" 2>&1 || true
+    run_without_single_lock_fd "$tile_bin" restore >>"$log_file" 2>&1 || true
+    if cmd_exists "$wallpaper_bin"; then
+        run_without_single_lock_fd "$wallpaper_bin" restore >>"$log_file" 2>&1 || true
+        if run_without_single_lock_fd "$wallpaper_bin" apply >>"$log_file" 2>&1; then
+            wallpapers_applied=1
+            xray_previous="$(current_xray || true)"
+            [[ -n "$xray_previous" ]] || xray_previous="0"
+            if set_xray 1; then
+                xray_changed=1
+            else
+                fallback_reason="session_lock_xray unavailable"
+                run_without_single_lock_fd "$wallpaper_bin" restore >>"$log_file" 2>&1 || true
+                wallpapers_applied=0
+                lock_target="$lock_config"
+                transparent_ready=0
+            fi
+        else
+            fallback_reason="lock wallpaper swap failed"
+            lock_target="$lock_config"
+            transparent_ready=0
+        fi
+    else
+        fallback_reason="mad-lock-wallpaper unavailable"
+        lock_target="$lock_config"
+        transparent_ready=0
+    fi
+else
+    log "staged_fallback=$fallback_reason"
+fi
+
+trap restore_session EXIT INT TERM
+log "lock_launch=start config=$lock_target fallback=$fallback_reason"
+(exec 9>&-; exec hyprlock --quiet --config "$lock_target" --immediate-render --no-fade-in "$@" >>"$log_file" 2>&1) &
+lock_pid="$!"
+log "lock_launch=pid pid=$lock_pid"
+
+if ! wait_for_overlay_ready "$lock_pid"; then
+    log "overlay_ready=failed pid=$lock_pid delay_ms=$overlay_ready_delay_ms"
+    kill_pid_if_alive "$lock_pid"
+    notify_failure "Hyprlock exited before the Dark Zen overlay was ready. Desktop state was restored."
+    exit 1
+fi
+log "overlay_ready=done pid=$lock_pid delay_ms=$overlay_ready_delay_ms"
+
+if cmd_exists "$sound_bin"; then
+    log "sound=lock"
+    run_without_single_lock_fd "$sound_bin" lock >>"$log_file" 2>&1 &
+fi
+
+if cmd_exists "$rgb_bin"; then
+    log "rgb=lock"
+    run_without_single_lock_fd "$rgb_bin" lock >>"$log_file" 2>&1 &
+fi
+
+if [[ "$transparent_ready" == "1" && "$lock_target" == "$transparent_config" && -z "$fallback_reason" ]]; then
+    tile_hide_pid=""
+    surface_hide_pid=""
+    log "post_overlay_parallel=start"
+    run_without_single_lock_fd "$tile_bin" hide >>"$log_file" 2>&1 &
+    tile_hide_pid="$!"
+    run_without_single_lock_fd "$surface_bin" hide >>"$log_file" 2>&1 &
+    surface_hide_pid="$!"
+
+    if wait "$tile_hide_pid" >/dev/null 2>&1; then
+        tiles_hidden=1
+        log "tiles=hidden"
+    else
+        log "tiles=hide_failed"
+    fi
+
+    if wait "$surface_hide_pid" >/dev/null 2>&1; then
+        surfaces_hidden=1
+        log "surfaces=hidden"
+    else
+        log "surfaces=hide_failed"
+    fi
+    log "post_overlay_parallel=done"
+fi
+
+if ! wait_for_lock_acquired "$lock_pid"; then
+    log "lock_acquire=failed pid=$lock_pid"
+    kill_pid_if_alive "$lock_pid"
+    notify_failure "Hyprlock did not acquire the session lock. Desktop state was restored."
+    exit 1
+fi
+log "lock_acquire=done pid=$lock_pid"
+
+wait "$lock_pid"
+lock_status="$?"
+log "lock_wait=done status=$lock_status"
+exit "$lock_status"

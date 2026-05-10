@@ -1,0 +1,371 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_name="MADPANDA Dark Zen"
+theme_slug="MADPANDA-Dark-Zen"
+window_name="mad-testbar"
+runtime_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/eww-testbar/$theme_slug"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/eww-bar"
+state_file="$state_dir/state.env"
+provider_helper="${MAD_BAR_PROVIDER_BIN:-$(command -v mad-bar-provider 2>/dev/null || printf '%s/mad-bar-provider' "${XDG_BIN_HOME:-$HOME/.local/bin}")}"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-eww-bar start [--keep-waybar]
+  mad-eww-bar start-session
+  mad-eww-bar stop
+  mad-eww-bar restart
+  mad-eww-bar status
+  mad-eww-bar lock-hide
+  mad-eww-bar lock-restore
+  mad-eww-bar rollback-waybar
+
+Runs the Dark Zen Eww bar as the theme-owned primary bar.
+Rollback stops Eww and restores Waybar without deleting Waybar configs.
+EOF
+}
+
+repo_root() {
+    if [[ -n "${MAD_PROJECT_LINUX_REPO:-}" ]]; then
+        printf '%s\n' "$MAD_PROJECT_LINUX_REPO"
+        return
+    fi
+
+    local candidate="$PWD"
+    while [[ -n "$candidate" && "$candidate" != "/" ]]; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" && -d "$candidate/scripts" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+        candidate="$(dirname "$candidate")"
+    done
+
+    for candidate in \
+        "$HOME/the-lab/project-linux/project-linux" \
+        "$HOME/project-linux/project-linux"; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+}
+
+source_dir() {
+    if [[ -n "${MAD_EWW_BAR_SOURCE:-}" ]]; then
+        printf '%s\n' "$MAD_EWW_BAR_SOURCE"
+        return
+    fi
+
+    local root
+    root="$(repo_root || true)"
+    if [[ -n "$root" && -d "$root/themes/$theme_slug/eww-testbar" ]]; then
+        printf '%s/themes/%s/eww-testbar\n' "$root" "$theme_slug"
+        return
+    fi
+
+    local live="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/$theme_name/eww-testbar"
+    [[ -d "$live" ]] && printf '%s\n' "$live"
+}
+
+selected_provider() {
+    if [[ -x "$provider_helper" ]]; then
+        "$provider_helper" current 2>/dev/null || printf 'eww\n'
+    else
+        printf 'eww\n'
+    fi
+}
+
+set_provider() {
+    local provider="$1"
+    [[ -x "$provider_helper" ]] || return 0
+    "$provider_helper" set "$provider" >/dev/null 2>&1 || true
+}
+
+eww_cmd() {
+    eww --force-wayland -c "$runtime_dir" "$@"
+}
+
+waybar_pids() {
+    pgrep -x waybar || true
+}
+
+waybar_process_count() {
+    pgrep -cx waybar || true
+}
+
+waybar_state() {
+    if [[ "$(waybar_process_count)" != "0" ]]; then
+        printf 'active\n'
+    else
+        printf 'inactive\n'
+    fi
+}
+
+start_waybar() {
+    if [[ "$(waybar_process_count)" == "0" ]] && command -v waybar >/dev/null 2>&1; then
+        if command -v setsid >/dev/null 2>&1; then
+            setsid -f waybar >/dev/null 2>&1
+        else
+            waybar >/dev/null 2>&1 &
+        fi
+    fi
+}
+
+stop_waybar() {
+    local pid
+    systemctl --user stop waybar.service >/dev/null 2>&1 || true
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        kill "$pid" >/dev/null 2>&1 || true
+    done < <(waybar_pids)
+}
+
+require_deps() {
+    local missing=()
+    command -v eww >/dev/null 2>&1 || missing+=(eww)
+    command -v socat >/dev/null 2>&1 || missing+=(socat)
+    command -v jq >/dev/null 2>&1 || missing+=(jq)
+    command -v rsync >/dev/null 2>&1 || missing+=(rsync)
+    if ((${#missing[@]})); then
+        printf 'Missing required command(s): %s\n' "${missing[*]}" >&2
+        return 1
+    fi
+}
+
+sync_config() {
+    local src
+    src="$(source_dir || true)"
+    if [[ -z "$src" || ! -d "$src" ]]; then
+        printf 'Eww bar source not found. Run from the repo or install the Dark Zen theme first.\n' >&2
+        return 1
+    fi
+
+    mkdir -p "$runtime_dir"
+    rsync -a --delete "$src/" "$runtime_dir/"
+    chmod +x "$runtime_dir"/scripts/*.sh
+}
+
+daemon_running() {
+    eww_cmd ping >/dev/null 2>&1
+}
+
+window_open() {
+    daemon_running || return 1
+    eww_cmd active-windows 2>/dev/null | awk -F ': ' -v window="$window_name" '$2 == window { found++ } END { exit found ? 0 : 1 }'
+}
+
+active_window_count() {
+    daemon_running || { printf '0\n'; return 0; }
+    eww_cmd active-windows 2>/dev/null | awk -F ': ' -v window="$window_name" '$2 == window { found++ } END { print found + 0 }'
+}
+
+monitor_rows() {
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.disabled == false) | [.name, (.id | tostring)] | @tsv' 2>/dev/null
+    fi
+}
+
+monitor_count() {
+    local count
+    count="$(monitor_rows | awk 'NF { count++ } END { print count + 0 }')"
+    if [[ "$count" == "0" ]]; then
+        printf '1\n'
+    else
+        printf '%s\n' "$count"
+    fi
+}
+
+window_id_for_monitor() {
+    local monitor="$1"
+    local safe
+    safe="$(printf '%s' "$monitor" | tr -c 'A-Za-z0-9_.-' '_')"
+    printf '%s-%s\n' "$window_name" "$safe"
+}
+
+open_bar_windows() {
+    local monitor id window_id opened=0
+
+    eww_cmd close-all >/dev/null 2>&1 || true
+    while IFS=$'\t' read -r monitor id; do
+        [[ -n "$monitor" ]] || continue
+        window_id="$(window_id_for_monitor "$monitor")"
+        if eww_cmd open --id "$window_id" --screen "$monitor" "$window_name" >/dev/null 2>&1; then
+            opened=$((opened + 1))
+            continue
+        fi
+        if [[ -n "$id" ]] && eww_cmd open --id "$window_id" --screen "$id" "$window_name" >/dev/null 2>&1; then
+            opened=$((opened + 1))
+        fi
+    done < <(monitor_rows)
+
+    if ((opened == 0)); then
+        eww_cmd open "$window_name"
+    fi
+}
+
+wait_for_window() {
+    local attempt
+    for attempt in {1..20}; do
+        [[ "$(active_window_count)" -ge "$(monitor_count)" ]] && return 0
+        sleep 0.1
+    done
+    return 1
+}
+
+write_state() {
+    local waybar_before="$1"
+    mkdir -p "$state_dir"
+    {
+        printf 'theme=%q\n' "$theme_name"
+        printf 'window=%q\n' "$window_name"
+        printf 'runtime=%q\n' "$runtime_dir"
+        printf 'waybar_before=%q\n' "$waybar_before"
+        printf 'started_at=%q\n' "$(date --iso-8601=seconds)"
+    } >"$state_file.tmp"
+    mv -f "$state_file.tmp" "$state_file"
+}
+
+start_bar() {
+    local keep_waybar="${1:-0}"
+    local waybar_before
+    set_provider eww
+    require_deps
+    sync_config
+    waybar_before="$(waybar_state)"
+
+    if ! daemon_running; then
+        eww_cmd daemon >/dev/null 2>&1
+        sleep 0.2
+    fi
+
+    open_bar_windows
+    wait_for_window || {
+        printf 'Eww bar did not open on all monitors: %s\n' "$window_name" >&2
+        return 1
+    }
+    write_state "$waybar_before"
+
+    if [[ "$keep_waybar" != "1" ]]; then
+        stop_waybar
+    fi
+    printf 'Started %s from %s\n' "$window_name" "$runtime_dir"
+}
+
+stop_bar() {
+    if daemon_running; then
+        eww_cmd close-all >/dev/null 2>&1 || true
+        eww_cmd kill >/dev/null 2>&1 || true
+        printf 'Stopped %s\n' "$window_name"
+    else
+        printf 'Eww bar daemon is not running.\n'
+    fi
+}
+
+lock_hide_bar() {
+    if daemon_running; then
+        eww_cmd close-all >/dev/null 2>&1 || true
+        printf 'Hidden %s lock windows\n' "$window_name"
+    else
+        printf 'Eww bar daemon is not running.\n'
+    fi
+}
+
+lock_restore_bar() {
+    if [[ ! -r "$runtime_dir/eww.yuck" ]]; then
+        require_deps
+        sync_config
+    fi
+
+    if ! daemon_running; then
+        eww_cmd daemon >/dev/null 2>&1
+        sleep 0.1
+    fi
+
+    open_bar_windows
+    wait_for_window || {
+        printf 'Eww bar did not restore on all monitors: %s\n' "$window_name" >&2
+        return 1
+    }
+    printf 'Restored %s lock windows\n' "$window_name"
+}
+
+rollback_waybar() {
+    set_provider waybar
+    stop_bar
+    start_waybar
+    printf 'Rolled back to Waybar. Dark Zen Eww config was left intact.\n'
+}
+
+status_bar() {
+    printf 'Provider: %s\n' "$(selected_provider)"
+    printf 'Runtime config: %s\n' "$runtime_dir"
+    printf 'Source config: %s\n' "$(source_dir || true)"
+    printf 'State file: %s\n' "$state_file"
+    printf 'Expected monitor windows: %s\n' "$(monitor_count)"
+    if command -v eww >/dev/null 2>&1; then
+        eww --version
+    else
+        printf 'eww: missing\n'
+    fi
+    if daemon_running; then
+        printf 'Daemon: running\n'
+        eww_cmd active-windows || true
+    else
+        printf 'Daemon: stopped\n'
+    fi
+    printf 'Waybar processes: %s\n' "$(waybar_process_count)"
+}
+
+case "${1:-}" in
+    start)
+        shift || true
+        keep_waybar=0
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --keep-waybar)
+                    keep_waybar=1
+                    shift
+                    ;;
+                *)
+                    usage >&2
+                    exit 2
+                    ;;
+            esac
+        done
+        start_bar "$keep_waybar"
+        ;;
+    start-session)
+        if [[ "$(selected_provider)" == "eww" ]]; then
+            start_bar 0
+        else
+            printf 'Dark Zen bar provider is %s; Eww start skipped.\n' "$(selected_provider)"
+        fi
+        ;;
+    stop)
+        stop_bar
+        ;;
+    restart)
+        stop_bar
+        start_bar 0
+        ;;
+    lock-hide)
+        lock_hide_bar
+        ;;
+    lock-restore)
+        lock_restore_bar
+        ;;
+    status)
+        status_bar
+        ;;
+    rollback-waybar|rollback)
+        rollback_waybar
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

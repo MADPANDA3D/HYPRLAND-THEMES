@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_root="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes"
+pack_state_root="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/theme-pack"
+wallpaper_state_root="$pack_state_root/wallpapers"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-wallpaper-theme apply "Theme Name" [--wallpaper NN.png] [--dry-run]
+  mad-wallpaper-theme restore "Theme Name" [--dry-run]
+  mad-wallpaper-theme status "Theme Name"
+
+Applies MADPANDA theme wallpapers per Hyprland output using awww. Landscape
+outputs can use the 4K tier, vertical outputs can use portrait variants, and
+animated GIF pilots are used only when explicitly enabled. High-res animated
+pilots are selected per output when both animated and high-res features are on.
+EOF
+}
+
+theme_slug() {
+    printf '%s' "$1" | tr ' ' '-'
+}
+
+theme_dir_for() {
+    printf '%s/%s\n' "$theme_root" "$1"
+}
+
+manifest_for() {
+    printf '%s/theme.json\n' "$(theme_dir_for "$1")"
+}
+
+feature_config_file_for() {
+    local name="$1"
+    printf '%s/madpanda/themes/%s/features.env\n' "${XDG_CONFIG_HOME:-$HOME/.config}" "$(theme_slug "$name")"
+}
+
+feature_default() {
+    case "$1" in
+        hires_wallpapers|vertical_wallpapers|animated_wallpapers)
+            printf '0\n'
+            ;;
+        *)
+            printf '1\n'
+            ;;
+    esac
+}
+
+feature_enabled() {
+    local name="$1"
+    local feature="$2"
+    local config var value
+
+    config="$(feature_config_file_for "$name")"
+    var="MAD_THEME_FEATURE_$(printf '%s' "$feature" | tr '[:lower:]' '[:upper:]')"
+    value="$(feature_default "$feature")"
+    if [[ -r "$config" ]]; then
+        value="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$config"
+            printf '%s\n' "${!var:-$value}"
+        )"
+    fi
+    [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" ]]
+}
+
+require_runtime() {
+    local manifest="$1"
+    command -v jq >/dev/null 2>&1 || {
+        printf 'jq is required for mad-wallpaper-theme.\n' >&2
+        exit 1
+    }
+    command -v awww >/dev/null 2>&1 || {
+        printf 'awww is required for mad-wallpaper-theme.\n' >&2
+        exit 1
+    }
+    [[ -r "$manifest" ]] || {
+        printf 'Theme manifest not found: %s\n' "$manifest" >&2
+        exit 1
+    }
+}
+
+state_file_for() {
+    local name="$1"
+    printf '%s/%s.tsv\n' "$wallpaper_state_root" "$(theme_slug "$name")"
+}
+
+parse_awww_query() {
+    awk '
+        /^:/ {
+            line = $0
+            sub(/^: /, "", line)
+            output = line
+            sub(/:.*/, "", output)
+            kind = "unknown"
+            value = ""
+            if (match(line, /currently displaying: image: /)) {
+                kind = "image"
+                value = substr(line, RSTART + RLENGTH)
+            } else if (match(line, /currently displaying: color: /)) {
+                kind = "color"
+                value = substr(line, RSTART + RLENGTH)
+            }
+            if (output != "" && value != "") {
+                printf "%s\t%s\t%s\n", output, kind, value
+            }
+        }
+    '
+}
+
+record_previous_wallpapers() {
+    local name="$1"
+    local state_file tmp
+
+    state_file="$(state_file_for "$name")"
+    [[ -s "$state_file" ]] && return 0
+    mkdir -p "$wallpaper_state_root"
+    tmp="$(mktemp)"
+    if awww query 2>/dev/null | parse_awww_query >"$tmp" && [[ -s "$tmp" ]]; then
+        install -m 0644 "$tmp" "$state_file"
+    fi
+    rm -f "$tmp"
+}
+
+monitor_rows() {
+    if command -v hyprctl >/dev/null 2>&1 && hyprctl monitors -j >/dev/null 2>&1; then
+        hyprctl monitors -j | jq -r '
+            .[] |
+            .name as $name |
+            (.width // 0) as $width |
+            (.height // 0) as $height |
+            (.transform // 0) as $transform |
+            ([1,3,5,7] | index($transform)) as $rotated |
+            [$name, (if ($rotated != null or $height > $width) then "vertical" else "landscape" end)] |
+            @tsv
+        '
+        return 0
+    fi
+
+    awww query 2>/dev/null | awk '
+        /^:/ {
+            line = $0
+            sub(/^: /, "", line)
+            output = line
+            sub(/:.*/, "", output)
+            if (match(line, /[0-9]+x[0-9]+/)) {
+                dims = substr(line, RSTART, RLENGTH)
+                split(dims, parts, "x")
+                orientation = parts[2] > parts[1] ? "vertical" : "landscape"
+                printf "%s\t%s\n", output, orientation
+            }
+        }
+    '
+}
+
+fallback_active_wallpaper() {
+    local wallpaper_root="$1"
+    local first
+
+    first="$(find "$wallpaper_root" -maxdepth 1 -type f -name '*.png' -printf '%f\n' 2>/dev/null | sort | head -n 1)"
+    [[ -n "$first" ]] || return 1
+    printf '%s\n' "$first"
+}
+
+asset_for_output() {
+    local name="$1"
+    local manifest="$2"
+    local output="$3"
+    local orientation="$4"
+    local requested_wallpaper="$5"
+    local theme_dir wallpaper_path wallpaper_root active stem candidate
+
+    theme_dir="$(theme_dir_for "$name")"
+    wallpaper_path="$(jq -r '.wallpapers.path // "wallpapers"' "$manifest")"
+    wallpaper_root="$theme_dir/$wallpaper_path"
+    active="$requested_wallpaper"
+    if [[ -z "$active" ]]; then
+        active="$(jq -r '.wallpapers.active // empty' "$manifest")"
+    fi
+    if [[ -z "$active" || ! -r "$wallpaper_root/$active" ]]; then
+        active="$(fallback_active_wallpaper "$wallpaper_root")"
+    fi
+    stem="${active%.*}"
+
+    if [[ "$orientation" == "landscape" ]] && feature_enabled "$name" animated_wallpapers; then
+        if feature_enabled "$name" hires_wallpapers; then
+            candidate="$wallpaper_root/animated/hires/landscape/$stem.gif"
+            if [[ -r "$candidate" ]]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        fi
+        candidate="$wallpaper_root/animated/landscape/$stem.gif"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    if [[ "$orientation" == "vertical" ]] && feature_enabled "$name" vertical_wallpapers; then
+        if feature_enabled "$name" animated_wallpapers; then
+            if feature_enabled "$name" hires_wallpapers; then
+                candidate="$wallpaper_root/animated/hires/portrait/$stem.gif"
+                if [[ -r "$candidate" ]]; then
+                    printf '%s\n' "$candidate"
+                    return 0
+                fi
+            fi
+            candidate="$wallpaper_root/animated/portrait/$stem.gif"
+            if [[ -r "$candidate" ]]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        fi
+        candidate="$wallpaper_root/hires/portrait/$active"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    if feature_enabled "$name" hires_wallpapers; then
+        candidate="$wallpaper_root/hires/landscape/$active"
+        if [[ -r "$candidate" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    fi
+
+    printf '%s\n' "$wallpaper_root/$active"
+}
+
+apply_wallpapers() {
+    local name="$1"
+    local requested_wallpaper="$2"
+    local dry_run="$3"
+    local manifest output orientation asset
+
+    manifest="$(manifest_for "$name")"
+    require_runtime "$manifest"
+    record_previous_wallpapers "$name"
+
+    if feature_enabled "$name" animated_wallpapers; then
+        if [[ "$dry_run" == "1" ]]; then
+            printf '[dry-run] awww clear-cache\n'
+        else
+            awww clear-cache >/dev/null 2>&1 || true
+        fi
+    fi
+
+    while IFS=$'\t' read -r output orientation; do
+        [[ -n "$output" && -n "$orientation" ]] || continue
+        asset="$(asset_for_output "$name" "$manifest" "$output" "$orientation" "$requested_wallpaper")"
+        if [[ "$dry_run" == "1" ]]; then
+            printf '[dry-run] awww img --outputs %q --resize crop --filter Lanczos3 --transition-type none %q\n' "$output" "$asset"
+        else
+            awww img --outputs "$output" --resize crop --filter Lanczos3 --transition-type none "$asset"
+        fi
+        printf '%s\t%s\t%s\n' "$output" "$orientation" "$asset"
+    done < <(monitor_rows)
+}
+
+current_value_for_output() {
+    local output="$1"
+    awww query 2>/dev/null | parse_awww_query | awk -F '\t' -v output="$output" '$1 == output { print $2 "\t" $3; exit }'
+}
+
+theme_owns_value() {
+    local name="$1"
+    local kind="$2"
+    local value="$3"
+    local wallpaper_root
+
+    [[ "$kind" == "image" ]] || return 1
+    wallpaper_root="$(theme_dir_for "$name")/$(jq -r '.wallpapers.path // "wallpapers"' "$(manifest_for "$name")")"
+    [[ "$value" == "$wallpaper_root/"* ]]
+}
+
+restore_wallpapers() {
+    local name="$1"
+    local dry_run="$2"
+    local manifest state_file output previous_kind previous_value current current_kind current_value
+
+    manifest="$(manifest_for "$name")"
+    require_runtime "$manifest"
+    state_file="$(state_file_for "$name")"
+    [[ -s "$state_file" ]] || {
+        printf 'No previous wallpaper state recorded for %s.\n' "$name"
+        return 0
+    }
+
+    while IFS=$'\t' read -r output previous_kind previous_value; do
+        [[ -n "$output" && -n "$previous_kind" && -n "$previous_value" ]] || continue
+        current="$(current_value_for_output "$output")"
+        current_kind="${current%%$'\t'*}"
+        current_value="${current#*$'\t'}"
+        if ! theme_owns_value "$name" "$current_kind" "$current_value"; then
+            printf 'Skipping %s: current wallpaper is no longer owned by %s.\n' "$output" "$name"
+            continue
+        fi
+        if [[ "$previous_kind" == "image" && -r "$previous_value" ]]; then
+            if [[ "$dry_run" == "1" ]]; then
+                printf '[dry-run] awww img --outputs %q --resize crop --filter Lanczos3 --transition-type none %q\n' "$output" "$previous_value"
+            else
+                awww img --outputs "$output" --resize crop --filter Lanczos3 --transition-type none "$previous_value"
+            fi
+            printf 'Restored %s to %s\n' "$output" "$previous_value"
+        elif [[ "$previous_kind" == "color" ]]; then
+            if [[ "$dry_run" == "1" ]]; then
+                printf '[dry-run] awww clear --outputs %q %q\n' "$output" "$previous_value"
+            else
+                awww clear --outputs "$output" "$previous_value"
+            fi
+            printf 'Restored %s to color %s\n' "$output" "$previous_value"
+        else
+            printf 'Skipping %s: previous wallpaper is unavailable: %s\n' "$output" "$previous_value"
+        fi
+    done <"$state_file"
+
+    [[ "$dry_run" == "1" ]] || rm -f "$state_file"
+}
+
+status_wallpapers() {
+    local name="$1"
+    local manifest
+
+    manifest="$(manifest_for "$name")"
+    require_runtime "$manifest"
+    printf 'Theme: %s\n' "$name"
+    printf 'Manifest: %s\n' "$manifest"
+    printf 'HIRES: %s\n' "$(feature_enabled "$name" hires_wallpapers && printf enabled || printf disabled)"
+    printf 'VERTICAL: %s\n' "$(feature_enabled "$name" vertical_wallpapers && printf enabled || printf disabled)"
+    printf 'ANIMATED: %s\n' "$(feature_enabled "$name" animated_wallpapers && printf enabled || printf disabled)"
+    printf '\nOutputs:\n'
+    monitor_rows
+    printf '\nAWWW:\n'
+    awww query || true
+}
+
+main() {
+    local cmd="${1:-}"
+    local name=""
+    local requested_wallpaper=""
+    local dry_run="0"
+
+    [[ -n "$cmd" ]] || {
+        usage
+        exit 2
+    }
+    shift || true
+
+    while (($#)); do
+        case "$1" in
+            --wallpaper)
+                shift
+                requested_wallpaper="${1:-}"
+                ;;
+            --dry-run)
+                dry_run="1"
+                ;;
+            -h|--help|help)
+                usage
+                exit 0
+                ;;
+            *)
+                if [[ -z "$name" ]]; then
+                    name="$1"
+                else
+                    usage >&2
+                    exit 2
+                fi
+                ;;
+        esac
+        shift || true
+    done
+
+    [[ -n "$name" ]] || {
+        usage >&2
+        exit 2
+    }
+
+    case "$cmd" in
+        apply)
+            apply_wallpapers "$name" "$requested_wallpaper" "$dry_run"
+            ;;
+        restore)
+            restore_wallpapers "$name" "$dry_run"
+            ;;
+        status)
+            status_wallpapers "$name"
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+}
+
+main "$@"
