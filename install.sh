@@ -2,7 +2,8 @@
 set -euo pipefail
 
 repo_url="${MADPANDA_HYPRLAND_THEMES_REPO:-https://github.com/MADPANDA3D/HYPRLAND-THEMES.git}"
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd || true)"
+script_source="${BASH_SOURCE[0]:-${0:-}}"
+script_dir="$(cd "$(dirname "$script_source")" >/dev/null 2>&1 && pwd || true)"
 if [[ -n "${MADPANDA_HYPRLAND_THEMES_DIR:-}" ]]; then
     repo_dir="$MADPANDA_HYPRLAND_THEMES_DIR"
 elif [[ -n "$script_dir" && -d "$script_dir/.git" && -d "$script_dir/MADPANDA Dark Zen" ]]; then
@@ -259,10 +260,14 @@ import_dark_zen() {
     local source_theme="$configs/.config/hyde/themes/$theme_name"
     local live_theme="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/$theme_name"
 
-    [[ -d "$source_theme" ]] || {
-        printf 'Dark Zen package not found at %s\n' "$source_theme" >&2
-        exit 1
-    }
+    if [[ ! -d "$source_theme" ]]; then
+        if [[ "$dry_run" == "1" ]]; then
+            log "Dark Zen package is not present yet; dry-run assumes it exists after clone: $source_theme"
+        else
+            printf 'Dark Zen package not found at %s\n' "$source_theme" >&2
+            exit 1
+        fi
+    fi
 
     if command -v hydectl >/dev/null 2>&1; then
         run_logged "$log_dir/dark-zen-import.log" hydectl theme import --name "$theme_name" --url "$configs" || {
@@ -279,6 +284,9 @@ import_dark_zen() {
     local theme_installer="$live_theme/install.sh"
     if [[ "$dry_run" == "1" && ! -r "$theme_installer" ]]; then
         theme_installer="$source_theme/install.sh"
+    fi
+    if [[ "$dry_run" == "1" && ! -r "$theme_installer" ]]; then
+        theme_installer="$live_theme/install.sh"
     fi
     if [[ ! -r "$theme_installer" ]]; then
         printf 'Dark Zen installer was not found after import: %s/install.sh\n' "$live_theme" >&2
