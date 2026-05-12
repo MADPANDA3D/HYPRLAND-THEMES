@@ -25,8 +25,9 @@ Usage:
   install.sh [--dry-run] [--yes] [--no-prompt] [--profile auto|desktop|laptop-light] [--enable a,b] [--disable a,b]
 
 Installs the MADPANDA Dark Zen HyDE theme and prompts for optional modules:
-sounds, rgb, identity, effects, keybindings, sddm, grub, high-res wallpapers,
-vertical wallpapers, animated wallpaper pilots, and bar provider.
+sounds, rgb, identity, effects, keybindings, dictation, sddm, plymouth, grub,
+high-res wallpapers, vertical wallpapers, animated wallpaper pilots, and bar
+provider.
 
 Profiles:
   auto          Detect laptop/desktop and choose a matching profile.
@@ -197,6 +198,44 @@ ask_feature() {
     esac
 }
 
+ask_dictation_backend() {
+    local answer default_backend="vosk"
+
+    if in_csv dictation "$disable_csv"; then
+        printf 'none\n'
+        return 0
+    fi
+    if [[ -n "${MAD_THEME_DICTATION_BACKEND:-}" ]]; then
+        case "$MAD_THEME_DICTATION_BACKEND" in
+            vosk|whisper|none) printf '%s\n' "$MAD_THEME_DICTATION_BACKEND"; return 0 ;;
+        esac
+    fi
+    if in_csv whisper "$enable_csv"; then
+        printf 'whisper\n'
+        return 0
+    fi
+    if in_csv vosk "$enable_csv" || in_csv dictation "$enable_csv"; then
+        printf 'vosk\n'
+        return 0
+    fi
+    if [[ "$dry_run" == "1" || "$no_prompt" == "1" || "$assume_yes" == "1" ]]; then
+        printf '%s\n' "$default_backend"
+        return 0
+    fi
+
+    printf '\nChoose a dictation backend for SUPER+W.\n' >&2
+    printf '  1) Vosk    - light/offline, recommended for laptops\n' >&2
+    printf '  2) Whisper - more accurate, heavier, requires model setup\n' >&2
+    printf '  3) Skip    - leave dictation disabled\n' >&2
+    printf 'Dictation backend [1/2/3, default 1] ' >&2
+    read -r answer
+    case "$answer" in
+        2|w|W|whisper|Whisper) printf 'whisper\n' ;;
+        3|s|S|skip|Skip|none|None) printf 'none\n' ;;
+        *) printf 'vosk\n' ;;
+    esac
+}
+
 ask_bar_provider() {
     local answer
     if in_csv eww_bar "$enable_csv" || in_csv eww "$enable_csv"; then
@@ -236,6 +275,10 @@ sddm_available() {
     systemctl list-unit-files sddm.service >/dev/null 2>&1 && return 0
     pacman -Q sddm >/dev/null 2>&1 && return 0
     return 1
+}
+
+plymouth_available() {
+    command -v plymouth >/dev/null 2>&1 && command -v plymouth-set-default-theme >/dev/null 2>&1
 }
 
 has_vertical_outputs() {
@@ -317,9 +360,13 @@ install_helpers() {
         mad-window-close \
         mad-window-burst \
         mad-display-gamma \
+        mad-dictate \
         mad-screenshot-region \
         mad-screenshot-active-window \
         mad-screenshot-full \
+        mad-record-menu \
+        mad-record-stop-all \
+        mad-record-active-monitor \
         mad-keybinds-hint \
         mad-settings-menu \
         mad-wallpaper-theme \
@@ -330,6 +377,8 @@ install_helpers() {
         mad-pandora-native-host \
         mad-pandora-dom-probe \
         mad-chrome-dark-zen \
+        mad-plymouth-theme \
+        mad-system-safety \
         mad-eww-widgets \
         mad-eww-bar \
         mad-eww-testbar; do
@@ -345,13 +394,16 @@ write_features() {
     local identity="$3"
     local effects="$4"
     local keybindings="$5"
-    local sddm="$6"
-    local grub="$7"
-    local hires_wallpapers="$8"
-    local vertical_wallpapers="$9"
-    local animated_wallpapers="${10}"
-    local bar_provider="${11:-eww}"
-    local profile="${12:-desktop}"
+    local dictation="$6"
+    local dictation_backend="$7"
+    local sddm="$8"
+    local plymouth="$9"
+    local grub="${10}"
+    local hires_wallpapers="${11}"
+    local vertical_wallpapers="${12}"
+    local animated_wallpapers="${13}"
+    local bar_provider="${14:-eww}"
+    local profile="${15:-desktop}"
 
     if [[ "$dry_run" == "1" ]]; then
         printf '[dry-run] write %s\n' "$features_file"
@@ -367,7 +419,10 @@ write_features() {
         printf 'MAD_THEME_FEATURE_IDENTITY=%s\n' "$identity"
         printf 'MAD_THEME_FEATURE_EFFECTS=%s\n' "$effects"
         printf 'MAD_THEME_FEATURE_KEYBINDINGS=%s\n' "$keybindings"
+        printf 'MAD_THEME_FEATURE_DICTATION=%s\n' "$dictation"
+        printf 'MAD_THEME_DICTATION_BACKEND=%q\n' "$dictation_backend"
         printf 'MAD_THEME_FEATURE_SDDM=%s\n' "$sddm"
+        printf 'MAD_THEME_FEATURE_PLYMOUTH=%s\n' "$plymouth"
         printf 'MAD_THEME_FEATURE_GRUB=%s\n' "$grub"
         printf 'MAD_THEME_FEATURE_HIRES_WALLPAPERS=%s\n' "$hires_wallpapers"
         printf 'MAD_THEME_FEATURE_VERTICAL_WALLPAPERS=%s\n' "$vertical_wallpapers"
@@ -475,6 +530,9 @@ main() {
     local identity_default="0"
     local effects_default="0"
     local keybindings_default="0"
+    local dictation_backend="vosk"
+    local dictation="1"
+    local plymouth_default="0"
     local grub_default="0"
     local hires_default="0"
     local animated_default="0"
@@ -487,6 +545,7 @@ main() {
         identity_default="1"
         effects_default="1"
         keybindings_default="1"
+        plymouth_default="0"
         grub_default="0"
         hires_default="0"
         animated_default="0"
@@ -498,6 +557,7 @@ main() {
         identity_default="1"
         effects_default="1"
         keybindings_default="1"
+        plymouth_default="0"
         grub_default="0"
         hires_default="1"
         animated_default="1"
@@ -514,6 +574,8 @@ main() {
     identity="$(ask_feature identity 'Enable Dark Zen lock/avatar/notification identity?' "$identity_default" 'Applies Dark Zen avatar, lock identity, notification styling, and related HyDE wallbash ownership.')"
     effects="$(ask_feature effects 'Enable tile-close sound hook?' "$effects_default" 'Enables the synthetic tile close effect and sound hook without screenshot capture.')"
     keybindings="$(ask_feature keybindings 'Install Dark Zen keybindings?' "$keybindings_default" 'Installs a theme-owned Hyprland override for MADPANDA shortcuts. Choose no to preserve your existing keybindings.')"
+    dictation_backend="$(ask_dictation_backend)"
+    [[ "$dictation_backend" == "none" ]] && dictation="0" || dictation="1"
     if sddm_available; then
         sddm="$(ask_feature sddm 'Use the Dark Zen SDDM login theme? Requires sudo.' 1 'Installs the Dark Zen SDDM wrapper while preserving the Corners-style login layout.')"
     else
@@ -521,6 +583,11 @@ main() {
         if [[ "$sddm" == "1" ]]; then
             install_sddm_display_manager || sddm="0"
         fi
+    fi
+    if plymouth_available; then
+        plymouth="$(ask_feature plymouth 'Use the Dark Zen Plymouth boot splash? Requires sudo and reboot validation.' "$plymouth_default" 'Boot splash support is rollback-first. It backs up GRUB, dracut, Plymouth config, and initramfs files before applying.')"
+    else
+        plymouth="$(ask_feature plymouth 'Plymouth is not installed. Install and use the Dark Zen Plymouth boot splash? Requires sudo and reboot validation.' "$plymouth_default" 'Optional boot splash setup. Leave off if you do not want boot-critical changes yet.')"
     fi
     grub="$(ask_feature grub 'Install GRUB artwork? Requires sudo and never regenerates GRUB automatically.' "$grub_default" 'Copies artwork only. This installer does not regenerate GRUB.')"
     hires_wallpapers="$(ask_feature hires_wallpapers 'Install/use the 4K high-res wallpaper pack?' "$hires_default" 'Large static wallpaper tier. Laptop-light keeps standard static wallpapers by default.')"
@@ -551,7 +618,7 @@ main() {
             printf 'Chrome/Chromium not found; Pandora media bridge skipped. Install Google Chrome or Chromium and rerun this installer to enable it.\n' >&2
         fi
     fi
-    write_features "$sounds" "$rgb" "$identity" "$effects" "$keybindings" "$sddm" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
+    write_features "$sounds" "$rgb" "$identity" "$effects" "$keybindings" "$dictation" "$dictation_backend" "$sddm" "$plymouth" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-bar-provider" ]]; then
         "$local_bin/mad-bar-provider" set "$bar_provider" >/dev/null 2>&1 || true
     fi

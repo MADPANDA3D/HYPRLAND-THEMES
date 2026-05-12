@@ -41,7 +41,10 @@
         "identity": true,
         "tileEffects": true,
         "keybindings": "ask-default-yes",
+        "dictation": "ask-vosk-whisper-skip",
+        "dictationBackendDefault": "vosk",
         "sddm": "offer-if-available",
+        "plymouth": "ask-default-no",
         "rgb": "on-if-openrgb-available",
         "hiresWallpapers": true,
         "verticalWallpapers": "on-if-vertical-output-detected",
@@ -57,7 +60,10 @@
         "identity": true,
         "tileEffects": true,
         "keybindings": "ask-default-yes",
+        "dictation": "ask-vosk-whisper-skip",
+        "dictationBackendDefault": "vosk",
         "sddm": "offer-if-available",
+        "plymouth": "ask-default-no",
         "rgb": false,
         "hiresWallpapers": false,
         "verticalWallpapers": false,
@@ -245,8 +251,14 @@
     "activateAutomatically": false
   },
   "plymouth": {
-    "mode": "not-installed",
-    "activateAutomatically": false
+    "mode": "static",
+    "themeName": "MADPANDA-Dark-Zen",
+    "themeDir": "plymouth/MADPANDA-Dark-Zen",
+    "themeFile": "plymouth/MADPANDA-Dark-Zen/MADPANDA-Dark-Zen.plymouth",
+    "featureFlag": "MAD_THEME_FEATURE_PLYMOUTH",
+    "activateAutomatically": false,
+    "restoreOnRollback": true,
+    "helper": "mad-plymouth-theme"
   },
   "rgb": {
     "themeFile": "rgb.theme",
@@ -292,6 +304,8 @@
       "SUPER+W dictation",
       "SUPER+E Chrome",
       "SUPER+R screen recording",
+      "SUPER+ALT+R recording mode menu",
+      "SUPER+SHIFT+ALT+R emergency recording stop",
       "SUPER+A Hyprexpo",
       "SUPER+S active tile screenshot",
       "SUPER+SHIFT+S region screenshot",
@@ -305,6 +319,26 @@
       "SUPER+C themed close",
       "SUPER+L Dark Zen lock"
     ]
+  },
+  "dictation": {
+    "featureFlag": "MAD_THEME_FEATURE_DICTATION",
+    "backendEnv": "MAD_THEME_DICTATION_BACKEND",
+    "helper": "mad-dictate",
+    "shortcut": "SUPER+W",
+    "guidedInstall": "ask-every-time",
+    "backends": {
+      "vosk": {
+        "description": "Light offline backend recommended for laptops.",
+        "model": "vosk-model-small-en-us-0.15"
+      },
+      "whisper": {
+        "description": "Accuracy-focused backend. Heavy model setup is explicit and never silently installed.",
+        "defaultModel": "small"
+      },
+      "none": {
+        "description": "Skip dictation and leave SUPER+W as a disabled helper notice."
+      }
+    }
   },
   "bar": {
     "provider": "eww",
@@ -404,7 +438,9 @@
     "policy": "Missing optional dependencies disable only their related adapter. They must not fail the whole theme install."
   },
   "safety": {
-    "noAutomaticGrubRegeneration": true,
+    "bootChanges": "none by default; Plymouth opt-in backs up and rebuilds dracut plus GRUB",
+    "noAutomaticGrubRegenerationByDefault": true,
+    "plymouthRegeneratesGrubWhenEnabled": true,
     "noAutomaticDiskFormatting": true,
     "noAutomaticSddmActivation": false,
     "staticFirst": true

@@ -182,7 +182,7 @@ feature_config_file_for() {
 
 feature_default() {
     case "$1" in
-        sddm|grub|hires_wallpapers|vertical_wallpapers|animated_wallpapers)
+        sddm|plymouth|grub|hires_wallpapers|vertical_wallpapers|animated_wallpapers)
             printf '0\n'
             ;;
         keybindings)
@@ -768,6 +768,7 @@ Eww bar|eww,socat|eww socat|optional Dark Zen Eww bar
 caffeine idle inhibitor|systemd-inhibit|systemd|optional Eww caffeine/autolock toggle
 Chrome media bridge|google-chrome-stable,google-chrome,chromium|google-chrome or chromium|optional Pandora album-art bridge
 SDDM login manager|sddm,sddm-greeter|sddm|optional SDDM login theme activation
+Plymouth boot splash|plymouth,plymouth-set-default-theme|plymouth|optional boot splash activation
 tree sync|rsync|rsync|required for promote/build
 EOF
 }
@@ -1365,9 +1366,13 @@ mad-waybar-safe
 mad-window-close
 mad-window-burst
 mad-display-gamma
+mad-dictate
 mad-screenshot-region
 mad-screenshot-active-window
 mad-screenshot-full
+mad-record-menu
+mad-record-stop-all
+mad-record-active-monitor
 mad-keybinds-hint
 mad-settings-menu
 mad-wallpaper-theme
@@ -1378,6 +1383,8 @@ mad-media-control
 mad-pandora-native-host
 mad-pandora-dom-probe
 mad-chrome-dark-zen
+mad-plymouth-theme
+mad-system-safety
 mad-eww-widgets
 mad-eww-bar
 mad-eww-testbar
@@ -1542,9 +1549,9 @@ status_theme() {
     printf 'Tile close effect: enabled=%s mode=%s\n' \
         "$(jq -r '.effects.tileClose.enabled | if . == true then "true" else "false" end' "$manifest" 2>/dev/null)" \
         "$(json_get_optional "$manifest" '.effects.tileClose.mode')"
-    printf 'Safety: no disk format=%s, no GRUB regen=%s, explicit SDDM activation=%s\n' \
+    printf 'Safety: no disk format=%s, boot changes=%s, explicit SDDM activation=%s\n' \
         "$(json_get "$manifest" '.safety.noAutomaticDiskFormatting')" \
-        "$(json_get "$manifest" '.safety.noAutomaticGrubRegeneration')" \
+        "$(json_get_optional "$manifest" '.safety.bootChanges')" \
         "$(json_get "$manifest" '.sddm.activateAutomatically')"
     if jq -e '.backupStorage.drives? | length > 0' "$manifest" >/dev/null 2>&1; then
         printf '\nBackup mount targets:\n'
@@ -2028,8 +2035,9 @@ apply_theme() {
     printf 'Will install active-theme-aware root RGB shutdown fallback when RGB is enabled and sudo -n allows.\n'
     printf 'Will own and regenerate HyDE Dunst wallbash styling when notification identity is declared.\n'
     printf 'Will install and activate bundled SDDM theme at: %s only when SDDM is enabled.\n' "$sddm_dir"
+    printf 'Will install and activate bundled Plymouth theme only when Plymouth is enabled.\n'
     printf 'Will apply per-output wallpaper tiers only when wallpaper features are enabled.\n'
-    printf 'Will not format disks, regenerate GRUB, install Plymouth, or edit the source SDDM theme.\n'
+    printf 'Will not format disks or edit the source SDDM theme.\n'
 
     [[ "$dry_run" == "1" ]] && return 0
 
@@ -2124,6 +2132,11 @@ apply_theme() {
         if feature_enabled "$name" sddm; then
             install_sddm_theme "$name" "0" "$run_root/sddm" >"$run_root/logs/sddm-theme.log" 2>&1 || {
                 printf 'SDDM theme install failed. See %s/logs/sddm-theme.log\n' "$run_root" >&2
+            }
+        fi
+        if feature_enabled "$name" plymouth && [[ -x "$local_bin/mad-plymouth-theme" ]]; then
+            "$local_bin/mad-plymouth-theme" apply --install-package >"$run_root/logs/plymouth-theme.log" 2>&1 || {
+                printf 'Plymouth theme install failed. See %s/logs/plymouth-theme.log\n' "$run_root" >&2
             }
         fi
     else

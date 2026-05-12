@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+helper="${MAD_RECORD_HELPER:-$script_dir/mad-record-active-monitor}"
+[[ -x "$helper" ]] || helper="${XDG_BIN_HOME:-$HOME/.local/bin}/mad-record-active-monitor"
+[[ -x "$helper" ]] || helper="mad-record-active-monitor"
+
+exec "$helper" --stop-all

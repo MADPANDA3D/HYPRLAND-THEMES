@@ -1,0 +1,498 @@
+#!/usr/bin/env python3
+"""Toggle local dictation into the currently focused Wayland app."""
+
+from __future__ import annotations
+
+import json
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+RATE = 16000
+MODEL_NAME = "vosk-model-small-en-us-0.15"
+WHISPER_MODEL_NAME = os.environ.get("MAD_DICTATION_WHISPER_MODEL", "small")
+INSERT_DELAY_MS = int(os.environ.get("MAD_DICTATION_INSERT_DELAY_MS", "900"))
+HOME = Path.home()
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "madpanda-dictation"
+FEATURE_FILE = (
+    Path(os.environ.get("XDG_CONFIG_HOME", HOME / ".config"))
+    / "madpanda/themes/MADPANDA-Dark-Zen/features.env"
+)
+MODEL_DIR = Path(
+    os.environ.get(
+        "MAD_DICTATION_MODEL",
+        HOME / ".local/share/madpanda/dictation/models" / MODEL_NAME,
+    )
+)
+WHISPER_MODEL_FILE = Path(os.environ.get("XDG_CACHE_HOME", HOME / ".cache")) / "whisper" / f"{WHISPER_MODEL_NAME}.pt"
+PID_FILE = STATE_DIR / "mad-dictate.pid"
+LOG_FILE = STATE_DIR / "mad-dictate.log"
+MEDIA_FILE = STATE_DIR / "paused-media.json"
+TERMINAL_CLASSES = {
+    "alacritty",
+    "com.mitchellh.ghostty",
+    "foot",
+    "footclient",
+    "ghostty",
+    "kitty",
+    "konsole",
+    "org.gnome.console",
+    "org.gnome.ptyxis",
+    "org.kde.konsole",
+    "st",
+    "terminal",
+    "wezterm",
+    "xterm",
+}
+VSCODE_CLASSES = {
+    "code",
+    "code - oss",
+    "codium",
+    "vscodium",
+}
+
+
+def read_feature_file() -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        lines = FEATURE_FILE.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return values
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, raw = line.split("=", 1)
+        try:
+            parts = shlex.split(raw)
+            value = parts[0] if parts else ""
+        except ValueError:
+            value = raw.strip("\"'")
+        values[key.strip()] = value
+    return values
+
+
+def selected_backend() -> str:
+    env_backend = os.environ.get("MAD_THEME_DICTATION_BACKEND", "").strip().lower()
+    if env_backend in {"vosk", "whisper", "none"}:
+        return env_backend
+    features = read_feature_file()
+    if features.get("MAD_THEME_FEATURE_DICTATION") == "0":
+        return "none"
+    backend = features.get("MAD_THEME_DICTATION_BACKEND", "vosk").strip().lower()
+    return backend if backend in {"vosk", "whisper", "none"} else "vosk"
+
+
+def notify(title: str, body: str) -> None:
+    if not shutil.which("notify-send"):
+        return
+    subprocess.run(["notify-send", title, body], check=False)
+
+
+def read_pid() -> int | None:
+    try:
+        raw = PID_FILE.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    if not raw.isdigit():
+        return None
+    return int(raw)
+
+
+def is_worker_pid(pid: int) -> bool:
+    cmdline = Path(f"/proc/{pid}/cmdline")
+    if not cmdline.exists():
+        return False
+    try:
+        text = cmdline.read_bytes().replace(b"\0", b" ").decode("utf-8", "replace")
+    except OSError:
+        return False
+    return "mad-dictate" in text and "--worker" in text
+
+
+def cleanup_pid() -> None:
+    try:
+        PID_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def can_import_vosk() -> bool:
+    try:
+        import vosk  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def can_import_whisper() -> bool:
+    try:
+        import whisper  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
+def dependency_report() -> list[str]:
+    backend = selected_backend()
+    checks = {
+        "parec": command_exists("parec"),
+        "playerctl": command_exists("playerctl"),
+        "wtype": command_exists("wtype"),
+        "wl-copy": command_exists("wl-copy"),
+        "notify-send": command_exists("notify-send"),
+    }
+    if backend == "vosk":
+        checks["python-vosk"] = can_import_vosk()
+        checks["vosk-model"] = MODEL_DIR.is_dir()
+    elif backend == "whisper":
+        checks["python-whisper"] = can_import_whisper()
+        checks[f"whisper-model-{WHISPER_MODEL_NAME}"] = WHISPER_MODEL_FILE.is_file()
+    return [f"{name}={'ok' if ok else 'missing'}" for name, ok in checks.items()]
+
+
+def status() -> int:
+    pid = read_pid()
+    print(f"stateDir={STATE_DIR}")
+    print(f"featureFile={FEATURE_FILE}")
+    print(f"backend={selected_backend()}")
+    print(f"modelDir={MODEL_DIR}")
+    print(f"modelPresent={str(MODEL_DIR.is_dir()).lower()}")
+    print(f"whisperModel={WHISPER_MODEL_FILE}")
+    print(f"whisperModelPresent={str(WHISPER_MODEL_FILE.is_file()).lower()}")
+    print(f"pid={pid or ''}")
+    print(f"running={str(bool(pid and is_worker_pid(pid))).lower()}")
+    for line in dependency_report():
+        print(line)
+    return 0
+
+
+def start() -> int:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    pid = read_pid()
+    if pid and is_worker_pid(pid):
+        return stop(pid)
+    cleanup_pid()
+
+    backend = selected_backend()
+    if backend == "none":
+        notify("Dictation disabled", "Dark Zen dictation is set to Skip in the theme installer.")
+        print("dictation=disabled", file=sys.stderr)
+        return 1
+
+    missing = [line for line in dependency_report() if line.endswith("missing")]
+    if missing:
+        notify("Dictation unavailable", ", ".join(missing))
+        print("\n".join(missing), file=sys.stderr)
+        return 1
+
+    paused_players = pause_playing_media()
+    save_paused_media(paused_players)
+
+    log = LOG_FILE.open("ab")
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--worker"],
+        stdin=subprocess.DEVNULL,
+        stdout=log,
+        stderr=log,
+        start_new_session=True,
+    )
+    PID_FILE.write_text(f"{proc.pid}\n", encoding="utf-8")
+    return 0
+
+
+def stop(pid: int) -> int:
+    try:
+        os.kill(pid, signal.SIGINT)
+    except ProcessLookupError:
+        cleanup_pid()
+        return 0
+    notify("Dictation stopping", "Transcribing and inserting text...")
+    return 0
+
+
+def normalize(text: str) -> str:
+    return " ".join(text.split()).strip()
+
+
+def command_output(args: list[str]) -> str:
+    result = subprocess.run(args, text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+    return result.stdout.strip()
+
+
+def pause_playing_media() -> list[str]:
+    if not command_exists("playerctl"):
+        return []
+
+    players = [line.strip() for line in command_output(["playerctl", "--list-all"]).splitlines() if line.strip()]
+    paused: list[str] = []
+
+    for player in players:
+        status_text = command_output(["playerctl", "--player", player, "status"])
+        if status_text == "Playing":
+            subprocess.run(["playerctl", "--player", player, "pause"], check=False)
+            paused.append(player)
+
+    return paused
+
+
+def save_paused_media(players: list[str]) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    MEDIA_FILE.write_text(json.dumps(players), encoding="utf-8")
+
+
+def restore_paused_media() -> None:
+    try:
+        players = json.loads(MEDIA_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        players = []
+
+    if command_exists("playerctl"):
+        for player in players:
+            if isinstance(player, str) and player:
+                subprocess.run(["playerctl", "--player", player, "play"], check=False)
+
+    try:
+        MEDIA_FILE.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def focused_window() -> dict[str, object]:
+    try:
+        return json.loads(command_output(["hyprctl", "activewindow", "-j"]))
+    except (json.JSONDecodeError, FileNotFoundError):
+        return {}
+
+
+def paste_sequence_for_focus() -> tuple[list[str] | None, str]:
+    window = focused_window()
+    class_names = {
+        str(window.get("class", "")).lower(),
+        str(window.get("initialClass", "")).lower(),
+    }
+    title = str(window.get("title", "")).lower()
+
+    if class_names & VSCODE_CLASSES or "visual studio code" in title:
+        return None, "copy-only-vscode"
+
+    if class_names & TERMINAL_CLASSES or "terminal" in title:
+        return ["wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl"], "ctrl+shift+v"
+
+    return ["wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl"], "ctrl+v"
+
+
+def insert_text(text: str) -> bool:
+    subprocess.run(["wl-copy"], input=text, text=True, check=False)
+    time.sleep(max(0, INSERT_DELAY_MS) / 1000)
+    command, _mode = paste_sequence_for_focus()
+    if command is None:
+        return False
+    result = subprocess.run(command, check=False)
+    return result.returncode == 0
+
+
+def paste_or_copy(text: str) -> int:
+    if not text:
+        notify("Dictation stopped", "No speech captured.")
+        return 0
+
+    _command, paste_mode = paste_sequence_for_focus()
+    if paste_mode == "copy-only-vscode":
+        notify("Dictation copied", "VS Code blocks virtual paste here. Press Ctrl+V.")
+        subprocess.run(["wl-copy"], input=text, text=True, check=False)
+        return 0
+
+    notify("Dictation ready", f"Release shortcut keys. Pasting with {paste_mode}...")
+    if insert_text(text):
+        notify("Dictation pasted", text[:120])
+    else:
+        notify("Dictation copied", "Text is on the clipboard, but wtype insert failed.")
+    return 0
+
+
+def worker() -> int:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(f"{os.getpid()}\n", encoding="utf-8")
+
+    stop_requested = False
+    recorder: subprocess.Popen[bytes] | None = None
+    segments: list[str] = []
+
+    def handle_stop(_signum: int, _frame: object) -> None:
+        nonlocal stop_requested, recorder
+        stop_requested = True
+        if recorder and recorder.poll() is None:
+            recorder.terminate()
+
+    signal.signal(signal.SIGINT, handle_stop)
+    signal.signal(signal.SIGTERM, handle_stop)
+
+    try:
+        backend = selected_backend()
+        if backend == "none":
+            notify("Dictation disabled", "Dark Zen dictation is set to Skip in the theme installer.")
+            return 1
+
+        if backend == "whisper":
+            if not WHISPER_MODEL_FILE.is_file():
+                notify(
+                    "Whisper model missing",
+                    f"Install/cache {WHISPER_MODEL_NAME} first. No heavy model download was started.",
+                )
+                return 1
+            try:
+                import whisper
+            except Exception as exc:
+                notify("Whisper unavailable", str(exc)[:160])
+                return 1
+
+            with tempfile.NamedTemporaryFile(prefix="mad-dictate-", suffix=".wav", delete=False) as wav:
+                wav_path = Path(wav.name)
+            recorder = subprocess.Popen(
+                [
+                    "parec",
+                    "--record",
+                    "--file-format=wav",
+                    "--client-name=mad-dictate",
+                    "--stream-name=dictation-mic",
+                    "-d",
+                    "@DEFAULT_SOURCE@",
+                    f"--rate={RATE}",
+                    "--channels=1",
+                    "--format=s16le",
+                    "--latency-msec=50",
+                    str(wav_path),
+                ],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            notify("Dictation ready", "Whisper mode. Speak now, then press SUPER+W again.")
+            while not stop_requested and recorder.poll() is None:
+                time.sleep(0.1)
+            if recorder.poll() is None:
+                recorder.terminate()
+                try:
+                    recorder.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    recorder.kill()
+
+            model = whisper.load_model(WHISPER_MODEL_NAME, download_root=str(WHISPER_MODEL_FILE.parent))
+            result = model.transcribe(str(wav_path), fp16=False)
+            try:
+                wav_path.unlink()
+            except OSError:
+                pass
+            return paste_or_copy(normalize(str(result.get("text", ""))))
+
+        from vosk import KaldiRecognizer, Model, SetLogLevel
+
+        SetLogLevel(-1)
+        model = Model(str(MODEL_DIR))
+        recognizer = KaldiRecognizer(model, RATE)
+
+        recorder = subprocess.Popen(
+            [
+                "parec",
+                "--record",
+                "--raw",
+                "--client-name=mad-dictate",
+                "--stream-name=dictation-mic",
+                "-d",
+                "@DEFAULT_SOURCE@",
+                f"--rate={RATE}",
+                "--channels=1",
+                "--format=s16le",
+                "--latency-msec=50",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+
+        assert recorder.stdout is not None
+        notify("Dictation ready", "Media paused. Speak now, then press SUPER+W again.")
+        while not stop_requested:
+            chunk = recorder.stdout.read(4096)
+            if not chunk:
+                break
+            if recognizer.AcceptWaveform(chunk):
+                result = json.loads(recognizer.Result())
+                if result.get("text"):
+                    segments.append(result["text"])
+
+        try:
+            final = json.loads(recognizer.FinalResult())
+            if final.get("text"):
+                segments.append(final["text"])
+        except json.JSONDecodeError:
+            pass
+
+        return paste_or_copy(normalize(" ".join(segments)))
+    except Exception as exc:  # Keep hotkey failures visible, not silent.
+        notify("Dictation failed", str(exc)[:160])
+        print(f"mad-dictate: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        if recorder and recorder.poll() is None:
+            recorder.terminate()
+            try:
+                recorder.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                recorder.kill()
+        restore_paused_media()
+        cleanup_pid()
+
+
+def dry_run() -> int:
+    print("action=toggle-dictation")
+    print("hotkey=SUPER+W")
+    print(f"backend={selected_backend()}")
+    print(f"insertDelayMs={INSERT_DELAY_MS}")
+    print("insertMode=clipboard-paste")
+    print(f"pasteMode={paste_sequence_for_focus()[1]}")
+    paused = []
+    try:
+        paused = json.loads(MEDIA_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    print(f"pausedMediaCount={len(paused)}")
+    print(f"modelDir={MODEL_DIR}")
+    deps = dependency_report()
+    for line in deps:
+        print(line)
+    if selected_backend() == "none":
+        print("would=disabled")
+        return 0
+    if any(line.endswith("missing") for line in deps):
+        print("would=blocked-missing-dependencies")
+        return 0
+    pid = read_pid()
+    if pid and is_worker_pid(pid):
+        print(f"would=stop pid={pid}")
+    else:
+        print("would=start")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if "--worker" in argv:
+        return worker()
+    if "--status" in argv:
+        return status()
+    if "--dry-run" in argv:
+        return dry_run()
+    return start()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

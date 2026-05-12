@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=MADPANDA Dark Zen
+Description=Static Dark Zen Plymouth splash with LUKS password prompt support
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/MADPANDA-Dark-Zen
+ScriptFile=/usr/share/plymouth/themes/MADPANDA-Dark-Zen/MADPANDA-Dark-Zen.script

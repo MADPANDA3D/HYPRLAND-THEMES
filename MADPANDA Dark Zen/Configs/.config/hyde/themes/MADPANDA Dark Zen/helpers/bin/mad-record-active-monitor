@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+mode="${1:-active-monitor}"
+out_dir="${MAD_RECORD_OUTPUT_DIR:-$HOME/Videos/Screen Recordings}"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/mad-record-active-monitor"
+pid_file="$state_dir/gpu-screen-recorder.pid"
+log_file="$state_dir/gpu-screen-recorder.log"
+stdin_fifo="$state_dir/gpu-screen-recorder.stdin"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "$@"
+    fi
+}
+
+is_gsr_pid() {
+    local pid="$1"
+
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 1
+
+    tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q 'gpu-screen-recorder'
+}
+
+stop_recording() {
+    local pid="$1"
+
+    notify "Screen recording" "Stopping and saving recording..."
+    kill -INT "$pid" 2>/dev/null || true
+
+    for _ in {1..80}; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            break
+        fi
+        sleep 0.1
+    done
+
+    rm -f "$pid_file" "$stdin_fifo"
+}
+
+stop_all_recordings() {
+    local pid pids=()
+
+    if [[ -f "$pid_file" ]]; then
+        pid="$(<"$pid_file")"
+        if is_gsr_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
+            pids+=("$pid")
+        fi
+    fi
+
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        [[ " ${pids[*]} " == *" $pid "* ]] || pids+=("$pid")
+    done < <(pgrep -u "$UID" -f '^gpu-screen-recorder( |$)' || true)
+
+    if ((${#pids[@]} == 0)); then
+        rm -f "$pid_file" "$stdin_fifo"
+        notify "Screen recording" "No active recorder found."
+        return 0
+    fi
+
+    notify "Screen recording" "Emergency stop: saving active recording."
+    for pid in "${pids[@]}"; do
+        kill -INT "$pid" 2>/dev/null || true
+    done
+    for _ in {1..80}; do
+        local alive="0"
+        for pid in "${pids[@]}"; do
+            if kill -0 "$pid" 2>/dev/null; then
+                alive="1"
+                break
+            fi
+        done
+        [[ "$alive" == "0" ]] && break
+        sleep 0.1
+    done
+    rm -f "$pid_file" "$stdin_fifo"
+}
+
+mkdir -p "$out_dir" "$state_dir"
+
+case "$mode" in
+    --stop-all|stop|stop-all|emergency-stop)
+        stop_all_recordings
+        exit 0
+        ;;
+    active-monitor|monitor|focused|active-window|portal|region)
+        ;;
+    -h|--help|help)
+        printf 'Usage: mad-record-active-monitor [active-monitor|focused|portal|region|--stop-all]\n'
+        exit 0
+        ;;
+    *)
+        notify "Screen recording failed" "Unknown recording mode: $mode"
+        printf 'Unknown recording mode: %s\n' "$mode" >&2
+        exit 2
+        ;;
+esac
+
+if [[ -f "$pid_file" ]]; then
+    pid="$(<"$pid_file")"
+    if is_gsr_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
+        stop_recording "$pid"
+        exit 0
+    fi
+    rm -f "$pid_file" "$stdin_fifo"
+fi
+
+record_args=()
+label="$mode"
+case "$mode" in
+    active-monitor|monitor)
+        monitor="$(hyprctl activeworkspace -j | jq -r '.monitor // empty')"
+        if [[ -z "$monitor" ]]; then
+            monitor="$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name' | head -n 1)"
+        fi
+
+        if [[ -z "$monitor" ]]; then
+            notify "Screen recording failed" "Could not determine the active monitor."
+            exit 1
+        fi
+        target="$monitor"
+        label="$monitor"
+        ;;
+    focused|active-window)
+        target="focused"
+        label="focused-window"
+        ;;
+    portal)
+        target="portal"
+        label="portal"
+        ;;
+    region)
+        if ! command -v slurp >/dev/null 2>&1; then
+            notify "Screen recording failed" "slurp is required for region recording."
+            exit 1
+        fi
+        geometry="$(slurp)"
+        [[ -n "$geometry" ]] || exit 0
+        target="region"
+        label="region"
+        record_args=(-region "$geometry")
+        ;;
+esac
+
+safe_label="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_')"
+file="$out_dir/recording-$(date +%Y%m%d-%H%M%S)-$safe_label.mp4"
+
+rm -f "$stdin_fifo"
+mkfifo "$stdin_fifo"
+exec 3<>"$stdin_fifo"
+
+printf '%s\n' "$$" > "$pid_file"
+notify "Screen recording started" "$label -> $file"
+
+exec gpu-screen-recorder \
+    -w "$target" \
+    "${record_args[@]}" \
+    -f 60 \
+    -fm cfr \
+    -k h264 \
+    -ac aac \
+    -a "default_output|default_input" \
+    -cursor yes \
+    -q very_high \
+    -o "$file" \
+    <&3 >"$log_file" 2>&1
