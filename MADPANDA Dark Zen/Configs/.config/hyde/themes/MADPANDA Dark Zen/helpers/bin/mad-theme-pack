@@ -34,6 +34,7 @@ pack_state_root="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/theme-pack"
 hyde_cache="${XDG_CACHE_HOME:-$HOME/.cache}/hyde"
 hyprlock_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock.conf"
 hyprlock_layout_dir="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock"
+hyprland_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
 dunst_override="$hyde_cache/wallbash/dunst.conf"
 dunst_wallbash_template="${XDG_DATA_HOME:-$HOME/.local/share}/wallbash/always/dunst.dcol"
 hypridle_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hypridle.conf"
@@ -223,6 +224,110 @@ backup_if_exists() {
     rel="${path#/}"
     mkdir -p "$run_root/backups/$(dirname "$rel")"
     cp -a "$path" "$run_root/backups/$rel"
+}
+
+render_keybinding_template() {
+    local template="$1"
+    local target="$2"
+    awk -v home="$HOME" -v local_bin="$local_bin" '
+        function replace_all(value, needle, replacement, pos, out) {
+            out = ""
+            while ((pos = index(value, needle)) > 0) {
+                out = out substr(value, 1, pos - 1) replacement
+                value = substr(value, pos + length(needle))
+            }
+            return out value
+        }
+        {
+            line = replace_all($0, "@MAD_HOME@", home)
+            line = replace_all(line, "@MAD_LOCAL_BIN@", local_bin)
+            print line
+        }
+    ' "$template" >"$target"
+}
+
+ensure_madpanda_usability_source() {
+    local run_root="$1"
+    local source_line='source = ~/.config/hypr/conf/madpanda-usability.conf'
+    local source_comment='# MADPANDA Dark Zen usability overrides.'
+    local had_source="0"
+    local tmp
+
+    if [[ -r "$hyprland_conf" ]] && grep -Fxq "$source_line" "$hyprland_conf"; then
+        had_source="1"
+    fi
+    mkdir -p "$(dirname "$hyprland_conf")"
+    if [[ ! -e "$hyprland_conf" ]]; then
+        mkdir -p "$pack_state_root"
+        : >"$pack_state_root/keybind-source-added"
+        {
+            printf '%s\n' "$source_comment"
+            printf '%s\n' "$source_line"
+        } >"$hyprland_conf"
+        return 0
+    fi
+
+    backup_if_exists "$hyprland_conf" "$run_root"
+    if [[ "$had_source" == "0" ]]; then
+        mkdir -p "$pack_state_root"
+        : >"$pack_state_root/keybind-source-added"
+    fi
+    tmp="$(mktemp)"
+    awk -v line="$source_line" -v comment="$source_comment" '
+        $0 == comment { next }
+        $0 == line { next }
+        { print }
+    ' "$hyprland_conf" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+    {
+        printf '\n%s\n' "$source_comment"
+        printf '%s\n' "$source_line"
+    } >>"$tmp"
+    install -m 0644 "$tmp" "$hyprland_conf"
+    rm -f "$tmp"
+}
+
+install_theme_keybindings() {
+    local source_dir="$1"
+    local run_root="$2"
+    local template="$source_dir/hypr/madpanda-usability.conf"
+    local rendered
+
+    [[ -r "$template" ]] || return 1
+    mkdir -p "$(dirname "$madpanda_hypr_conf")" "$pack_state_root"
+    pack_backup_once "$madpanda_hypr_conf" "hypr-madpanda-usability.conf"
+    backup_if_exists "$madpanda_hypr_conf" "$run_root"
+    rendered="$(mktemp)"
+    render_keybinding_template "$template" "$rendered"
+    install -m 0644 "$rendered" "$madpanda_hypr_conf"
+    rm -f "$rendered"
+    printf '%s\n' "MADPANDA Dark Zen" >"$pack_state_root/keybind-owner"
+    ensure_madpanda_usability_source "$run_root"
+}
+
+clear_keybind_overrides() {
+    local run_root="$1"
+    local source_line='source = ~/.config/hypr/conf/madpanda-usability.conf'
+    local source_comment='# MADPANDA Dark Zen usability overrides.'
+    local tmp
+
+    [[ -r "$pack_state_root/keybind-owner" ]] || return 0
+    backup_if_exists "$madpanda_hypr_conf" "$run_root"
+    backup_if_exists "$hyprland_conf" "$run_root"
+    pack_restore_backup "$madpanda_hypr_conf" "hypr-madpanda-usability.conf"
+
+    if [[ -r "$pack_state_root/keybind-source-added" && -r "$hyprland_conf" ]]; then
+        tmp="$(mktemp)"
+        awk -v line="$source_line" -v comment="$source_comment" '
+            $0 == comment { next }
+            $0 == line { next }
+            { print }
+        ' "$hyprland_conf" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+        install -m 0644 "$tmp" "$hyprland_conf"
+        rm -f "$tmp"
+    fi
+
+    rm -f "$pack_state_root/keybind-owner" "$pack_state_root/keybind-source-added"
+    printf 'Cleared MADPANDA-managed keybinding overrides. Evidence: %s\n' "$run_root"
 }
 
 sddm_config_candidates() {
@@ -1913,6 +2018,7 @@ apply_theme() {
     printf 'Will stage theme-owned lock/unlock/boot sounds when declared.\n'
     printf 'Will render theme-owned Dunst styling when declared.\n'
     printf 'Will set Hyprlock to a theme-owned lock layout when declared.\n'
+    printf 'Will install theme-owned Hyprland keybindings when declared.\n'
     printf 'Will install a lightweight watcher so normal HyDE switching activates/deactivates the theme.\n'
     printf 'Will install generic sound hooks that no-op for themes without sound assets.\n'
     printf 'Will install generic tile-close hooks that no-op effects for themes without tile-close assets.\n'
@@ -1947,7 +2053,7 @@ apply_theme() {
         "$local_bin/mad-chrome-dark-zen" --install-desktop >"$run_root/logs/chrome-desktop.log" 2>&1 || true
         "$local_bin/mad-chrome-dark-zen" --install-extension >"$run_root/logs/chrome-extension.log" 2>&1 || true
     fi
-    if [[ -r "$madpanda_hypr_conf" ]]; then
+    if ! install_theme_keybindings "$source_dir" "$run_root"; then
         backup_if_exists "$madpanda_hypr_conf" "$run_root"
         ensure_usability_daily_binds \
             "$madpanda_hypr_conf" \
@@ -2063,6 +2169,7 @@ deactivate_theme() {
     fi
     restore_theme_wallpapers_if_needed "$name" "$run_root"
     clear_identity_overrides "$run_root" >"$run_root/logs/clear-identity.log" 2>&1 || true
+    clear_keybind_overrides "$run_root" >"$run_root/logs/clear-keybindings.log" 2>&1 || true
     restore_sddm_if_owned "$name" "$run_root" >"$run_root/logs/restore-sddm.log" 2>&1 || true
     printf 'Deactivated MADPANDA theme adapters for %s. Evidence: %s\n' "${name:-unknown}" "$run_root"
 }
@@ -2191,7 +2298,11 @@ main() {
             install_sddm_theme "$name" "$dry_run" ""
             ;;
         clear-overrides)
-            clear_identity_overrides "$(make_run_root "clear-overrides")"
+            run_root="$(make_run_root "clear-overrides")"
+            mkdir -p "$run_root/logs"
+            clear_identity_overrides "$run_root" >"$run_root/logs/clear-identity.log" 2>&1 || true
+            clear_keybind_overrides "$run_root" >"$run_root/logs/clear-keybindings.log" 2>&1 || true
+            printf 'Cleared MADPANDA overrides. Evidence: %s\n' "$run_root"
             ;;
         deactivate)
             shift || true

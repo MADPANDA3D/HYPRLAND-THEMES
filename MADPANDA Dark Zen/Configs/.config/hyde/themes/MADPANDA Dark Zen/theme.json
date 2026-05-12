@@ -276,6 +276,32 @@
       ]
     }
   },
+  "keybindings": {
+    "mode": "theme-owned-hyprland-override",
+    "template": "hypr/madpanda-usability.conf",
+    "target": "$XDG_CONFIG_HOME/hypr/conf/madpanda-usability.conf",
+    "sourceLine": "source = ~/.config/hypr/conf/madpanda-usability.conf",
+    "sourceOrder": "end-of-hyprland-conf",
+    "cheatSheetHelper": "mad-keybinds-hint",
+    "dailyShortcuts": [
+      "SUPER+Q terminal",
+      "SUPER+W dictation",
+      "SUPER+E Chrome",
+      "SUPER+R screen recording",
+      "SUPER+A Hyprexpo",
+      "SUPER+S active tile screenshot",
+      "SUPER+SHIFT+S region screenshot",
+      "PrintScreen active monitor screenshot",
+      "SUPER+T scratchpad",
+      "SUPER+D Dolphin",
+      "SUPER+F keybinds",
+      "SUPER+/ keybinds",
+      "SUPER+Z VS Code",
+      "SUPER+X widget drawer",
+      "SUPER+C themed close",
+      "SUPER+L Dark Zen lock"
+    ]
+  },
   "bar": {
     "provider": "eww",
     "defaultProvider": "eww",
