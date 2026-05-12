@@ -94,6 +94,16 @@ waybar_process_count() {
     pgrep -cx waybar || true
 }
 
+waybar_services() {
+    printf '%s\n' hyde-Hyprland-bar.service waybar.service
+}
+
+systemd_user_service_loaded() {
+    local service="$1"
+    [[ -n "$service" ]] || return 1
+    [[ "$(systemctl --user show -p LoadState --value "$service" 2>/dev/null || true)" == "loaded" ]]
+}
+
 waybar_state() {
     if [[ "$(waybar_process_count)" != "0" ]]; then
         printf 'active\n'
@@ -103,6 +113,17 @@ waybar_state() {
 }
 
 start_waybar() {
+    local service
+    if command -v systemctl >/dev/null 2>&1; then
+        while IFS= read -r service; do
+            [[ -n "$service" ]] || continue
+            if systemd_user_service_loaded "$service"; then
+                systemctl --user start "$service" >/dev/null 2>&1 || true
+                sleep 0.2
+                [[ "$(waybar_process_count)" != "0" ]] && return 0
+            fi
+        done < <(waybar_services)
+    fi
     if [[ "$(waybar_process_count)" == "0" ]] && command -v waybar >/dev/null 2>&1; then
         if command -v setsid >/dev/null 2>&1; then
             setsid -f waybar >/dev/null 2>&1
@@ -113,11 +134,23 @@ start_waybar() {
 }
 
 stop_waybar() {
-    local pid
-    systemctl --user stop waybar.service >/dev/null 2>&1 || true
+    local pid service
+    if command -v systemctl >/dev/null 2>&1; then
+        while IFS= read -r service; do
+            [[ -n "$service" ]] || continue
+            systemctl --user stop "$service" >/dev/null 2>&1 || true
+        done < <(waybar_services)
+    fi
     while IFS= read -r pid; do
         [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" ]] && continue
         kill "$pid" >/dev/null 2>&1 || true
+    done < <(waybar_pids)
+    sleep 0.2
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        [[ "$pid" == "$$" ]] && continue
+        kill -9 "$pid" >/dev/null 2>&1 || true
     done < <(waybar_pids)
 }
 
@@ -247,6 +280,8 @@ start_bar() {
     write_state "$waybar_before"
 
     if [[ "$keep_waybar" != "1" ]]; then
+        stop_waybar
+        sleep 0.1
         stop_waybar
     fi
     printf 'Started %s from %s\n' "$window_name" "$runtime_dir"

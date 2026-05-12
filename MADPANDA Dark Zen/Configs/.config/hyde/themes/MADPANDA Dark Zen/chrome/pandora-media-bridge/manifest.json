@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MADPANDA Pandora Media Bridge",
+  "version": "0.1.7",
+  "description": "Expose Pandora now-playing artwork and metadata to Dark Zen local widgets.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2v0soyzc0ewF5Zmc6B8JrCBViLl/S30vwTow5qkoOItrMdueMyBiI9S3GuR5+ohkwUDnngaUQbnuu8gHdO/SX2qI297cE5Cz+PARNnp1bEAGr76n47ueH/X1OQzIVV7d5IF8o29WZBT5RGS095W05IAnsq/RoBmc4XXRvqOQfftP5Gr5eiaHMIvbqnI/13vqW1qsPkNelOC/CI6T8qn58eWnVktTDlzU820SUDv6XXaU3jVfnrYqRrjkY4Nq6QgkSSZMwsDLYMUdtIMftgFoOuwzLvKwMPPxo5umjWHc4p6YqrVqVmxP4JCh287acrE9DJl8+sDGzqOMvW4YdPbLTwIDAQAB",
+  "permissions": [
+    "nativeMessaging",
+    "scripting",
+    "tabs"
+  ],
+  "host_permissions": [
+    "*://pandora.com/*",
+    "*://*.pandora.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://pandora.com/*",
+        "*://*.pandora.com/*"
+      ],
+      "js": [
+        "content-pandora.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "background": {
+    "service_worker": "service-worker.js"
+  }
+}

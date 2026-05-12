@@ -4,7 +4,23 @@ set -euo pipefail
 dir="${XDG_SCREENSHOTS_DIR:-$HOME/Pictures/Screenshots}"
 mkdir -p "$dir"
 
-file="$dir/screenshot-full-$(date +%Y%m%d-%H%M%S).png"
-grim "$file"
+monitor=""
+if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    monitor="$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)"
+    if [[ -z "$monitor" ]]; then
+        monitor="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null | head -n 1 || true)"
+    fi
+fi
+
+stamp="$(date +%Y%m%d-%H%M%S)"
+safe_monitor="${monitor:-unknown}"
+safe_monitor="${safe_monitor//[^A-Za-z0-9_.-]/_}"
+file="$dir/screenshot-monitor-$stamp-$safe_monitor.png"
+
+if [[ -n "$monitor" ]]; then
+    grim -o "$monitor" "$file"
+else
+    grim "$file"
+fi
 wl-copy < "$file"
-notify-send "Full screenshot saved" "$file"
+notify-send "Monitor screenshot saved" "$file"

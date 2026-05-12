@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+import hashlib
+import json
+import os
+import struct
+import sys
+import time
+import urllib.request
+from pathlib import Path
+
+HOST_NAME = "com.madpanda.darkzen.pandora_media"
+DEFAULT_EXTENSION_ID = "gbhipccghddhjemgmoeaegcpbglffkjn"
+
+
+def cache_dir() -> Path:
+    return Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache"))) / "madpanda" / "pandora-media"
+
+
+def state_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "madpanda" / "pandora-media"
+
+
+def extension_id_path() -> Path:
+    return state_dir() / "extension-id"
+
+
+def extension_id() -> str:
+    value = ""
+    try:
+        value = extension_id_path().read_text(encoding="utf-8").strip()
+    except Exception:
+        value = ""
+    if len(value) == 32 and all("a" <= char <= "p" for char in value):
+        return value
+    return DEFAULT_EXTENSION_ID
+
+
+def manifest_paths() -> list[Path]:
+    config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+    return [
+        config_home / "google-chrome" / "NativeMessagingHosts" / f"{HOST_NAME}.json",
+        config_home / "chromium" / "NativeMessagingHosts" / f"{HOST_NAME}.json",
+    ]
+
+
+def current_path() -> Path:
+    return cache_dir() / "current.json"
+
+
+def debug_path() -> Path:
+    return cache_dir() / "debug.json"
+
+
+def control_path() -> Path:
+    return cache_dir() / "control.json"
+
+
+def control_result_path() -> Path:
+    return cache_dir() / "control-result.json"
+
+
+def install_manifest() -> int:
+    host_path = Path(sys.argv[0]).resolve()
+    current_extension_id = extension_id()
+    manifest = {
+        "name": HOST_NAME,
+        "description": "MADPANDA Dark Zen Pandora media bridge",
+        "path": str(host_path),
+        "type": "stdio",
+        "allowed_origins": [f"chrome-extension://{current_extension_id}/"],
+    }
+    for path in manifest_paths():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return 0
+
+
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def is_test_payload(payload: dict) -> bool:
+    title = clean(payload.get("title"))
+    artist = clean(payload.get("artist"))
+    page_url = clean(payload.get("pageUrl"))
+    if "/self-test" in page_url or "/plan-smoke" in page_url:
+        return True
+    if title in {"Bridge self-test", "Plan Smoke"} and artist == "MADPANDA":
+        return True
+    return False
+
+
+def is_service_error_payload(payload: dict) -> bool:
+    title = clean(payload.get("title")).lower()
+    artist = clean(payload.get("artist"))
+    album = clean(payload.get("album"))
+    art_url = clean(payload.get("artUrl"))
+    art_path = clean(payload.get("artPath"))
+    if artist or album or art_url or art_path:
+        return False
+    if "service unavailable" in title:
+        return True
+    return title.startswith(("500 ", "502 ", "503 ", "504 "))
+
+
+def is_pandora_url(value: str) -> bool:
+    if "/web-client-assets/" in value:
+        return False
+    return value.startswith("https://pandora.com/") or value.startswith("https://www.pandora.com/")
+
+
+def payload_age(payload: dict) -> int | None:
+    updated = int(payload.get("updatedAtEpoch") or 0)
+    if updated <= 0:
+        return None
+    return max(0, int(time.time()) - updated)
+
+
+def payload_fresh(payload: dict, *, reject_tests: bool = False) -> bool:
+    age = payload_age(payload)
+    if age is None or age >= 180:
+        return False
+    if reject_tests and is_test_payload(payload):
+        return False
+    if reject_tests and is_service_error_payload(payload):
+        return False
+    return True
+
+
+def print_status() -> int:
+    target_dir = cache_dir()
+    current = load_json(current_path())
+    debug = load_json(debug_path())
+    control = load_json(control_path())
+    control_result = load_json(control_result_path())
+
+    status = {
+        "host": HOST_NAME,
+        "extensionId": extension_id(),
+        "extensionIdPath": str(extension_id_path()),
+        "cacheDir": str(target_dir),
+        "manifests": [
+            {"path": str(path), "exists": path.exists()} for path in manifest_paths()
+        ],
+        "current": {
+            "path": str(current_path()),
+            "exists": current_path().exists(),
+            "fresh": payload_fresh(current, reject_tests=True),
+            "ageSeconds": payload_age(current),
+            "ignoredTest": is_test_payload(current) if current else False,
+            "ignoredServiceError": is_service_error_payload(current) if current else False,
+            "title": clean(current.get("title")),
+            "artist": clean(current.get("artist")),
+            "album": clean(current.get("album")),
+            "status": clean(current.get("status")),
+            "artPath": clean(current.get("artPath")),
+            "artExists": Path(clean(current.get("artPath"))).exists() if clean(current.get("artPath")) else False,
+        },
+        "debug": {
+            "path": str(debug_path()),
+            "exists": debug_path().exists(),
+            "fresh": payload_fresh(debug),
+            "ageSeconds": payload_age(debug),
+            "pageUrl": clean(debug.get("pageUrl")),
+            "frameUrl": clean(debug.get("frameUrl")),
+            "documentTitle": clean(debug.get("documentTitle")),
+            "bridgeMarker": clean(debug.get("bridgeMarker")),
+            "isTopFrame": bool(debug.get("isTopFrame")),
+            "imageCount": int(debug.get("imageCount") or 0),
+            "visibleImageCount": int(debug.get("visibleImageCount") or 0),
+            "textFieldCount": int(debug.get("textFieldCount") or 0),
+            "nearbyTextCount": int(debug.get("nearbyTextCount") or 0),
+            "titleFound": bool(debug.get("titleFound")),
+            "artistFound": bool(debug.get("artistFound")),
+            "albumFound": bool(debug.get("albumFound")),
+            "selectedArtUrl": clean(debug.get("selectedArtUrl")),
+        },
+        "control": {
+            "path": str(control_path()),
+            "exists": control_path().exists(),
+            "fresh": payload_fresh(control),
+            "ageSeconds": payload_age(control),
+            "action": clean(control.get("action")),
+            "nonce": clean(control.get("nonce")),
+        },
+        "lastControl": {
+            "path": str(control_result_path()),
+            "exists": control_result_path().exists(),
+            "fresh": payload_fresh(control_result),
+            "ageSeconds": payload_age(control_result),
+            "action": clean(control_result.get("action")),
+            "nonce": clean(control_result.get("nonce")),
+            "status": clean(control_result.get("status")),
+            "clicked": bool(control_result.get("clicked")),
+            "selector": clean(control_result.get("selector")),
+            "reason": clean(control_result.get("reason")),
+            "pageUrl": clean(control_result.get("pageUrl")),
+        },
+    }
+    print(json.dumps(status, indent=2))
+    return 0
+
+
+def read_message() -> dict:
+    raw_length = sys.stdin.buffer.read(4)
+    if len(raw_length) == 0:
+        return {}
+    if len(raw_length) != 4:
+        raise RuntimeError("invalid native message length")
+    length = struct.unpack("<I", raw_length)[0]
+    if length <= 0 or length > 1024 * 1024:
+        raise RuntimeError("native message too large")
+    data = sys.stdin.buffer.read(length)
+    if len(data) != length:
+        raise RuntimeError("truncated native message")
+    return json.loads(data.decode("utf-8"))
+
+
+def send_message(message: dict) -> None:
+    encoded = json.dumps(message).encode("utf-8")
+    sys.stdout.buffer.write(struct.pack("<I", len(encoded)))
+    sys.stdout.buffer.write(encoded)
+    sys.stdout.buffer.flush()
+
+
+def clean(value: object) -> str:
+    if not isinstance(value, str):
+        return ""
+    return " ".join(value.split()).strip()
+
+
+def download_art(url: str, target_dir: Path) -> str:
+    if not url.startswith("https://"):
+        return ""
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:24]
+    path = target_dir / f"cover-{digest}.jpg"
+    if path.exists() and path.stat().st_size > 0:
+        return str(path)
+    request = urllib.request.Request(url, headers={"User-Agent": "MADPANDA-Dark-Zen/1.0"})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        content_type = response.headers.get("content-type", "")
+        if not content_type.startswith("image/"):
+            return ""
+        data = response.read(5 * 1024 * 1024)
+    if not data:
+        return ""
+    path.write_bytes(data)
+    return str(path)
+
+
+def atomic_write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def queue_control(action: str) -> int:
+    action = clean(action)
+    if action not in {"previous", "play-pause", "next"}:
+        print("usage: mad-pandora-native-host --queue-control previous|play-pause|next", file=sys.stderr)
+        return 2
+    target_dir = cache_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "source": "pandora",
+        "action": action,
+        "createdAtEpoch": int(time.time()),
+        "updatedAtEpoch": int(time.time()),
+        "nonce": hashlib.sha256(f"{action}:{time.time_ns()}".encode("utf-8")).hexdigest()[:16],
+    }
+    atomic_write_json(control_path(), payload)
+    print(json.dumps({"ok": True, "queued": action, "path": str(control_path())}, indent=2))
+    return 0
+
+
+def write_control_result(payload: dict) -> None:
+    target_dir = cache_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    result = {
+        "source": "pandora",
+        "action": clean(payload.get("action")),
+        "nonce": clean(payload.get("nonce")),
+        "status": clean(payload.get("status")),
+        "clicked": bool(payload.get("clicked")),
+        "selector": clean(payload.get("selector")),
+        "reason": clean(payload.get("reason")),
+        "pageUrl": clean(payload.get("pageUrl")),
+        "frameUrl": clean(payload.get("frameUrl")),
+        "updatedAt": clean(payload.get("updatedAt")),
+        "updatedAtEpoch": int(time.time()),
+    }
+    atomic_write_json(control_result_path(), result)
+
+
+def handle_debug(payload: dict) -> dict:
+    target_dir = cache_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+    page_url = clean(payload.get("pageUrl"))
+    frame_url = clean(payload.get("frameUrl"))
+    if page_url and not is_pandora_url(page_url) and frame_url and not is_pandora_url(frame_url):
+        return {"ok": True, "ignored": "non-pandora-debug"}
+    if not bool(payload.get("isTopFrame")) and not clean(payload.get("selectedArtUrl")) and not bool(payload.get("titleFound")):
+        return {"ok": True, "ignored": "empty-child-frame-debug"}
+
+    debug = {
+        "source": "pandora",
+        "pageUrl": page_url,
+        "frameUrl": frame_url,
+        "documentTitle": clean(payload.get("documentTitle")),
+        "bridgeMarker": clean(payload.get("bridgeMarker")),
+        "isTopFrame": bool(payload.get("isTopFrame")),
+        "imageCount": int(payload.get("imageCount") or 0),
+        "visibleImageCount": int(payload.get("visibleImageCount") or 0),
+        "selectedArtUrl": clean(payload.get("selectedArtUrl")),
+        "selectedArtArea": int(payload.get("selectedArtArea") or 0),
+        "textFieldCount": int(payload.get("textFieldCount") or 0),
+        "nearbyTextCount": int(payload.get("nearbyTextCount") or 0),
+        "titleFound": bool(payload.get("titleFound")),
+        "artistFound": bool(payload.get("artistFound")),
+        "albumFound": bool(payload.get("albumFound")),
+        "updatedAt": clean(payload.get("updatedAt")),
+        "updatedAtEpoch": int(time.time()),
+    }
+    atomic_write_json(debug_path(), debug)
+    return {"ok": True}
+
+
+def handle_media(payload: dict) -> dict:
+    target_dir = cache_dir()
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    if is_test_payload(payload):
+        return {"ok": True, "ignored": "test-payload"}
+    page_url = clean(payload.get("pageUrl"))
+    if page_url and not is_pandora_url(page_url):
+        return {"ok": True, "ignored": "non-pandora-media"}
+
+    art_url = clean(payload.get("artUrl"))
+    title = clean(payload.get("title"))
+    artist = clean(payload.get("artist"))
+    album = clean(payload.get("album"))
+    candidate = {"title": title, "artist": artist, "album": album, "artUrl": art_url}
+    if title == "Pandora" and not artist and not album and not art_url:
+        return {"ok": True, "ignored": "empty-pandora-media"}
+    if is_service_error_payload(candidate):
+        return {"ok": True, "ignored": "pandora-service-unavailable"}
+
+    art_path = ""
+    if art_url:
+        try:
+            art_path = download_art(art_url, target_dir)
+        except Exception:
+            art_path = ""
+
+    current = {
+        "source": "pandora",
+        "title": title,
+        "artist": artist,
+        "album": album,
+        "status": clean(payload.get("status")),
+        "artUrl": art_url,
+        "artPath": art_path,
+        "pageUrl": page_url,
+        "updatedAt": clean(payload.get("updatedAt")),
+        "updatedAtEpoch": int(time.time()),
+    }
+    atomic_write_json(current_path(), current)
+    return {"ok": True}
+
+
+def handle_control_poll(payload: dict) -> dict:
+    page_url = clean(payload.get("pageUrl"))
+    frame_url = clean(payload.get("frameUrl"))
+    if page_url and not is_pandora_url(page_url) and frame_url and not is_pandora_url(frame_url):
+        return {"ok": True, "command": ""}
+
+    control = load_json(control_path())
+    if not control:
+        return {"ok": True, "command": ""}
+    if not payload_fresh(control):
+        write_control_result({
+            "action": clean(control.get("action")),
+            "nonce": clean(control.get("nonce")),
+            "status": "ignored",
+            "reason": "stale-control",
+            "pageUrl": page_url,
+            "frameUrl": frame_url,
+            "updatedAt": clean(payload.get("updatedAt")),
+        })
+        try:
+            control_path().unlink()
+        except FileNotFoundError:
+            pass
+        return {"ok": True, "command": "", "ignored": "stale-control"}
+    action = clean(control.get("action"))
+    if action not in {"previous", "play-pause", "next"}:
+        write_control_result({
+            "action": action,
+            "nonce": clean(control.get("nonce")),
+            "status": "ignored",
+            "reason": "invalid-control",
+            "pageUrl": page_url,
+            "frameUrl": frame_url,
+            "updatedAt": clean(payload.get("updatedAt")),
+        })
+        try:
+            control_path().unlink()
+        except FileNotFoundError:
+            pass
+        return {"ok": True, "command": "", "ignored": "invalid-control"}
+
+    nonce = clean(control.get("nonce"))
+    try:
+        control_path().unlink()
+    except FileNotFoundError:
+        pass
+    write_control_result({
+        "action": action,
+        "nonce": nonce,
+        "status": "delivered",
+        "reason": "awaiting-click",
+        "pageUrl": page_url,
+        "frameUrl": frame_url,
+        "updatedAt": clean(payload.get("updatedAt")),
+    })
+    return {"ok": True, "command": action, "nonce": nonce}
+
+
+def handle_control_result(payload: dict) -> dict:
+    page_url = clean(payload.get("pageUrl"))
+    frame_url = clean(payload.get("frameUrl"))
+    if page_url and not is_pandora_url(page_url) and frame_url and not is_pandora_url(frame_url):
+        return {"ok": True, "ignored": "non-pandora-control-result"}
+    write_control_result({
+        "action": clean(payload.get("action")),
+        "nonce": clean(payload.get("nonce")),
+        "status": "clicked" if bool(payload.get("clicked")) else "missing",
+        "clicked": bool(payload.get("clicked")),
+        "selector": clean(payload.get("selector")),
+        "reason": clean(payload.get("reason")),
+        "pageUrl": page_url,
+        "frameUrl": frame_url,
+        "updatedAt": clean(payload.get("updatedAt")),
+    })
+    return {"ok": True}
+
+
+def handle(payload: dict) -> dict:
+    kind = clean(payload.get("__kind"))
+    if kind == "debug":
+        return handle_debug(payload)
+    if kind == "control-poll":
+        return handle_control_poll(payload)
+    if kind == "control-result":
+        return handle_control_result(payload)
+    return handle_media(payload)
+
+
+def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == "--install-manifest":
+        return install_manifest()
+    if len(sys.argv) > 1 and sys.argv[1] == "--status":
+        return print_status()
+    if len(sys.argv) > 2 and sys.argv[1] == "--queue-control":
+        return queue_control(sys.argv[2])
+    try:
+        payload = read_message()
+        if not payload:
+            return 0
+        send_message(handle(payload))
+        return 0
+    except Exception as error:
+        try:
+            send_message({"ok": False, "error": str(error)})
+        except Exception:
+            pass
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

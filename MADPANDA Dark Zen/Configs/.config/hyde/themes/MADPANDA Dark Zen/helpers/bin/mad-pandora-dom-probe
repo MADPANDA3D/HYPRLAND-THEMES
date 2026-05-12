@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+import base64
+import hashlib
+import json
+import os
+import socket
+import struct
+import sys
+import time
+import urllib.request
+from urllib.parse import urlparse
+
+
+PORT = int(os.environ.get("MAD_PANDORA_PROBE_PORT", "9222"))
+HOST = "127.0.0.1"
+
+
+EVALUATION = r"""
+(() => {
+  const clean = (value) => (value || "").replace(/\s+/g, " ").trim();
+  const rectFor = (element) => {
+    if (!element || !element.getBoundingClientRect) return null;
+    const rect = element.getBoundingClientRect();
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+      top: Math.round(rect.top),
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+      bottom: Math.round(rect.bottom),
+      area: Math.round(rect.width * rect.height),
+      visible: rect.width > 24 && rect.height > 24
+    };
+  };
+  const className = (element) => {
+    if (!element) return "";
+    if (typeof element.className === "string") return element.className;
+    if (element.className && typeof element.className.baseVal === "string") return element.className.baseVal;
+    return "";
+  };
+  const parentClasses = (element) => {
+    const classes = [];
+    let node = element;
+    for (let i = 0; node && i < 5; i += 1, node = node.parentElement) {
+      const cls = clean(className(node));
+      if (cls) classes.push(cls);
+    }
+    return classes;
+  };
+  const selectorText = (selector) => {
+    const out = [];
+    document.querySelectorAll(selector).forEach((element) => {
+      const text = clean(element.textContent || element.getAttribute("aria-label") || element.getAttribute("title"));
+      const rect = rectFor(element);
+      if (text) out.push({ selector, text, rect, classes: parentClasses(element).slice(0, 3) });
+    });
+    return out.slice(0, 12);
+  };
+  const selectors = [
+    '[data-qa="mini_track_title"]',
+    '[data-qa="mini_track_artist_name"]',
+    '[data-qa="mini_track_album_title"]',
+    '[data-qa="now_playing_track_title"]',
+    '[data-qa="now_playing_artist_name"]',
+    '[data-qa="now_playing_album_title"]',
+    '[class*="nowPlayingTopInfo" i]',
+    '[class*="Tuner__Audio" i]',
+    '[class*="MiniPlayer" i]',
+    '[data-qa*="now" i]',
+    '[data-qa*="track" i]',
+    '[data-qa*="artist" i]',
+    '[data-qa*="album" i]'
+  ];
+  const imageCandidates = Array.from(document.querySelectorAll("img")).map((img) => {
+    const src = img.currentSrc || img.src || "";
+    const rect = rectFor(img);
+    return {
+      src,
+      alt: clean(img.alt || img.getAttribute("aria-label") || img.title),
+      naturalWidth: img.naturalWidth || 0,
+      naturalHeight: img.naturalHeight || 0,
+      complete: Boolean(img.complete),
+      rect,
+      classes: parentClasses(img)
+    };
+  }).filter((item) => item.src).sort((a, b) => {
+    const aPandora = /p-cdn\.us|pandora/i.test(a.src) ? 1 : 0;
+    const bPandora = /p-cdn\.us|pandora/i.test(b.src) ? 1 : 0;
+    return bPandora - aPandora || Number(Boolean(b.rect && b.rect.visible)) - Number(Boolean(a.rect && a.rect.visible)) || ((b.rect && b.rect.area) || 0) - ((a.rect && a.rect.area) || 0);
+  });
+  const visibleImages = imageCandidates.filter((item) => item.rect && item.rect.visible);
+  const selected = visibleImages.find((item) => /p-cdn\.us|pandora/i.test(item.src)) || visibleImages[0] || imageCandidates[0] || null;
+  const nearbyText = [];
+  if (selected && selected.rect) {
+    Array.from(document.querySelectorAll('[data-qa], [class*="nowPlaying" i], [class*="Tuner" i], [class*="Mini" i], span, a, button')).forEach((element) => {
+      const text = clean(element.textContent || element.getAttribute("aria-label") || element.getAttribute("title"));
+      if (!text || text.length > 120) return;
+      const rect = rectFor(element);
+      if (!rect || !rect.visible) return;
+      const dx = Math.max(0, Math.max(selected.rect.left - rect.right, rect.left - selected.rect.right));
+      const dy = Math.max(0, Math.max(selected.rect.top - rect.bottom, rect.top - selected.rect.bottom));
+      if (dx > 420 || dy > 260) return;
+      nearbyText.push({ text, dx: Math.round(dx), dy: Math.round(dy), rect, classes: parentClasses(element).slice(0, 3) });
+    });
+  }
+  const pressedPause = document.querySelector('[aria-label*="Pause" i], [title*="Pause" i]');
+  const pressedPlay = document.querySelector('[aria-label*="Play" i], [title*="Play" i]');
+  return {
+    location: location.href,
+    documentTitle: document.title,
+    readyState: document.readyState,
+    imageCount: imageCandidates.length,
+    visibleImageCount: visibleImages.length,
+    selectedImage: selected,
+    topImages: imageCandidates.slice(0, 12),
+    selectorHits: selectors.flatMap(selectorText).slice(0, 80),
+    nearbyText: nearbyText.sort((a, b) => (a.dx + a.dy) - (b.dx + b.dy)).slice(0, 40),
+    playbackStatus: pressedPause ? "Playing" : pressedPlay ? "Paused" : "Unknown",
+    bridgeMarker: document.documentElement.dataset.madpandaPandoraBridge || ""
+  };
+})()
+"""
+
+
+def http_json(path: str) -> object:
+    with urllib.request.urlopen(f"http://{HOST}:{PORT}{path}", timeout=2) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def pick_pandora_tab(tabs: list[dict]) -> dict:
+    pages = [tab for tab in tabs if tab.get("type") == "page"]
+    for tab in pages:
+        host = urlparse(tab.get("url", "")).hostname or ""
+        if host == "pandora.com" or host.endswith(".pandora.com"):
+            return tab
+    for tab in pages:
+        if "pandora" in (tab.get("title", "") + tab.get("url", "")).lower():
+            return tab
+    raise RuntimeError("No Pandora tab found on the local Chrome probe port.")
+
+
+class CdpSocket:
+    def __init__(self, debugger_url: str):
+        parsed = urlparse(debugger_url)
+        self.host = parsed.hostname or HOST
+        self.port = parsed.port or PORT
+        self.path = parsed.path
+        if parsed.query:
+            self.path += "?" + parsed.query
+        self.next_id = 1
+        self.sock = socket.create_connection((self.host, self.port), timeout=3)
+        self._handshake()
+
+    def _handshake(self) -> None:
+        key = base64.b64encode(os.urandom(16)).decode("ascii")
+        request = (
+            f"GET {self.path} HTTP/1.1\r\n"
+            f"Host: {self.host}:{self.port}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            f"Sec-WebSocket-Key: {key}\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n"
+        )
+        self.sock.sendall(request.encode("ascii"))
+        response = self.sock.recv(4096)
+        if b" 101 " not in response.split(b"\r\n", 1)[0]:
+            raise RuntimeError(f"WebSocket handshake failed: {response[:120]!r}")
+
+    def _send_frame(self, payload: bytes) -> None:
+        header = bytearray([0x81])
+        length = len(payload)
+        if length < 126:
+            header.append(0x80 | length)
+        elif length < 65536:
+            header.append(0x80 | 126)
+            header.extend(struct.pack("!H", length))
+        else:
+            header.append(0x80 | 127)
+            header.extend(struct.pack("!Q", length))
+        mask = os.urandom(4)
+        header.extend(mask)
+        masked = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
+        self.sock.sendall(bytes(header) + masked)
+
+    def _recv_exact(self, length: int) -> bytes:
+        data = b""
+        while len(data) < length:
+            chunk = self.sock.recv(length - len(data))
+            if not chunk:
+                raise RuntimeError("WebSocket closed")
+            data += chunk
+        return data
+
+    def _recv_frame(self) -> dict:
+        head = self._recv_exact(2)
+        opcode = head[0] & 0x0F
+        length = head[1] & 0x7F
+        if length == 126:
+            length = struct.unpack("!H", self._recv_exact(2))[0]
+        elif length == 127:
+            length = struct.unpack("!Q", self._recv_exact(8))[0]
+        masked = bool(head[1] & 0x80)
+        mask = self._recv_exact(4) if masked else b""
+        payload = self._recv_exact(length)
+        if masked:
+            payload = bytes(byte ^ mask[i % 4] for i, byte in enumerate(payload))
+        if opcode == 8:
+            raise RuntimeError("WebSocket closed by peer")
+        if opcode not in (1, 2):
+            return {}
+        return json.loads(payload.decode("utf-8"))
+
+    def call(self, method: str, params: dict) -> dict:
+        message_id = self.next_id
+        self.next_id += 1
+        self._send_frame(json.dumps({"id": message_id, "method": method, "params": params}).encode("utf-8"))
+        deadline = time.time() + 8
+        while time.time() < deadline:
+            message = self._recv_frame()
+            if message.get("id") == message_id:
+                return message
+        raise RuntimeError(f"Timed out waiting for CDP response to {method}")
+
+    def close(self) -> None:
+        try:
+            self.sock.close()
+        except Exception:
+            pass
+
+
+def main() -> int:
+    try:
+        tabs = http_json("/json")
+        tab = pick_pandora_tab(tabs)
+        cdp = CdpSocket(tab["webSocketDebuggerUrl"])
+        try:
+            result = cdp.call(
+                "Runtime.evaluate",
+                {
+                    "expression": EVALUATION,
+                    "returnByValue": True,
+                    "awaitPromise": True,
+                    "timeout": 6000,
+                },
+            )
+        finally:
+            cdp.close()
+        value = result.get("result", {}).get("result", {}).get("value")
+        if value is None:
+            print(json.dumps({"tab": tab, "rawResult": result}, indent=2))
+            return 1
+        print(json.dumps({"tab": {"title": tab.get("title"), "url": tab.get("url")}, "probe": value}, indent=2))
+        return 0
+    except Exception as error:
+        print(f"mad-pandora-dom-probe: {error}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

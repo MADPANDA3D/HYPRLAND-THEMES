@@ -178,3 +178,175 @@ tooltip.background {
   border-radius: 8px;
   color: $foreground;
 }
+
+.drawer-shell {
+  background: linear-gradient(180deg, rgba(4, 0, 0, 0.94), rgba(42, 4, 4, 0.9));
+  border: 1px solid rgba(234, 0, 0, 0.52);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px $shadow;
+  color: $foreground;
+  padding: 18px;
+}
+
+.drawer-card {
+  background: rgba(255, 230, 230, 0.065);
+  border: 1px solid rgba(255, 90, 31, 0.18);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.drawer-title {
+  color: #ffffff;
+  font-size: 17px;
+  padding-bottom: 10px;
+}
+
+.drawer-subtitle {
+  color: $muted;
+  font-size: 12px;
+}
+
+.drawer-weekdays,
+.drawer-calendar-row {
+  margin-top: 8px;
+}
+
+.drawer-weekday,
+.drawer-day {
+  color: $muted;
+  font-size: 14px;
+  min-width: 58px;
+  padding: 7px 0;
+}
+
+.calendar-nav {
+  margin-bottom: 4px;
+}
+
+.calendar-title {
+  min-width: 190px;
+  padding: 0 10px 0 10px;
+}
+
+.calendar-nav-button {
+  border-radius: 999px;
+  color: $muted;
+  min-height: 28px;
+  min-width: 34px;
+  padding: 0 8px;
+}
+
+.calendar-nav-button:hover {
+  background: rgba(255, 90, 31, 0.18);
+  color: #ffffff;
+}
+
+.today-button {
+  min-width: 58px;
+}
+
+.drawer-weekday {
+  color: rgba(255, 230, 230, 0.72);
+}
+
+.drawer-day.today {
+  background: linear-gradient(135deg, rgba(234, 0, 0, 0.9), rgba(255, 90, 31, 0.78));
+  border-radius: 999px;
+  color: #ffffff;
+}
+
+.drawer-day.empty {
+  color: rgba(255, 230, 230, 0.15);
+}
+
+.media-card {
+  padding-bottom: 10px;
+}
+
+.media-art-fallback {
+  background: linear-gradient(135deg, rgba(234, 0, 0, 0.72), rgba(255, 90, 31, 0.42));
+  border-radius: 10px;
+  min-height: 76px;
+  min-width: 76px;
+}
+
+.media-art-image {
+  border-radius: 10px;
+  min-height: 76px;
+  min-width: 76px;
+}
+
+.media-art-icon {
+  color: #ffffff;
+  font-size: 30px;
+}
+
+.media-title {
+  padding-bottom: 2px;
+}
+
+.media-controls {
+  margin-top: 10px;
+}
+
+.media-controls button {
+  border-radius: 999px;
+  color: $muted;
+  min-height: 24px;
+  min-width: 34px;
+}
+
+.media-controls button:hover {
+  background: rgba(255, 90, 31, 0.18);
+  color: #ffffff;
+}
+
+.resource-row {
+  background: rgba(4, 0, 0, 0.36);
+  border-radius: 999px;
+  margin-top: 7px;
+  padding: 6px 10px;
+}
+
+.resource-name {
+  color: $muted;
+  font-size: 12px;
+  min-width: 48px;
+}
+
+.resource-value {
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.vital-meter-strip {
+  margin-top: 6px;
+}
+
+.vital-meter {
+  min-width: 66px;
+}
+
+.vital-name {
+  color: $muted;
+  font-size: 12px;
+}
+
+.vital-value {
+  color: #ffffff;
+  font-size: 12px;
+  padding-bottom: 9px;
+}
+
+.vital-progress trough {
+  background: rgba(255, 230, 230, 0.14);
+  border-radius: 999px;
+  min-height: 128px;
+  min-width: 24px;
+}
+
+.vital-progress trough progress {
+  background: linear-gradient(180deg, $accentWarm, $accent);
+  border-radius: 999px;
+  min-width: 24px;
+}

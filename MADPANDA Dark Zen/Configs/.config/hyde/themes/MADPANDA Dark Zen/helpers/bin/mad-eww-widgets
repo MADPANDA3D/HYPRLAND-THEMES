@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+theme_slug="MADPANDA-Dark-Zen"
+runtime_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/eww-testbar/$theme_slug"
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-eww-widgets calendar-toggle
+  mad-eww-widgets drawer-toggle
+  mad-eww-widgets close
+  mad-eww-widgets status
+
+Controls the Dark Zen hidden Eww side widgets on the focused monitor.
+EOF
+}
+
+repo_root() {
+    if [[ -n "${MAD_PROJECT_LINUX_REPO:-}" ]]; then
+        printf '%s\n' "$MAD_PROJECT_LINUX_REPO"
+        return
+    fi
+
+    local candidate="$PWD"
+    while [[ -n "$candidate" && "$candidate" != "/" ]]; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" && -d "$candidate/scripts" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+        candidate="$(dirname "$candidate")"
+    done
+
+    for candidate in \
+        "$HOME/the-lab/project-linux/project-linux" \
+        "$HOME/project-linux/project-linux"; do
+        if [[ -d "$candidate/themes/$theme_slug/eww-testbar" ]]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+}
+
+source_dir() {
+    local root live
+    root="$(repo_root || true)"
+    if [[ -n "$root" && -d "$root/themes/$theme_slug/eww-testbar" ]]; then
+        printf '%s/themes/%s/eww-testbar\n' "$root" "$theme_slug"
+        return
+    fi
+
+    live="${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/MADPANDA Dark Zen/eww-testbar"
+    [[ -d "$live" ]] && printf '%s\n' "$live"
+}
+
+eww_cmd() {
+    eww --force-wayland -c "$runtime_dir" "$@"
+}
+
+sync_config_if_needed() {
+    [[ -r "$runtime_dir/eww.yuck" ]] && return 0
+    command -v rsync >/dev/null 2>&1 || return 1
+
+    local src
+    src="$(source_dir || true)"
+    [[ -n "$src" && -d "$src" ]] || return 1
+    mkdir -p "$runtime_dir"
+    rsync -a --delete "$src/" "$runtime_dir/"
+    chmod +x "$runtime_dir"/scripts/*.sh 2>/dev/null || true
+}
+
+ensure_daemon() {
+    sync_config_if_needed || true
+    if ! eww_cmd ping >/dev/null 2>&1; then
+        eww_cmd daemon >/dev/null 2>&1
+        sleep 0.1
+    fi
+}
+
+focused_monitor() {
+    local monitor=""
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        monitor="$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)"
+        if [[ -z "$monitor" ]]; then
+            monitor="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null | head -n 1 || true)"
+        fi
+    fi
+    printf '%s\n' "$monitor"
+}
+
+focused_monitor_id() {
+    local id=""
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+        id="$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitorID // empty' 2>/dev/null || true)"
+        if [[ -z "$id" || "$id" == "null" ]]; then
+            id="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .id' 2>/dev/null | head -n 1 || true)"
+        fi
+    fi
+    [[ "$id" == "null" ]] && id=""
+    printf '%s\n' "$id"
+}
+
+safe_id() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'
+}
+
+active_window_id() {
+    local id="$1"
+    eww_cmd active-windows 2>/dev/null | awk -F ': ' -v id="$id" '$1 == id { found = 1 } END { exit found ? 0 : 1 }'
+}
+
+close_id() {
+    local id="$1"
+    eww_cmd close "$id" >/dev/null 2>&1 || true
+}
+
+close_focused_pair() {
+    local monitor safe
+    monitor="$(focused_monitor)"
+    safe="$(safe_id "${monitor:-default}")"
+    close_id "mad-calendar-panel-$safe"
+    close_id "mad-widget-drawer-$safe"
+}
+
+close_all_widgets() {
+    local id
+    if ! eww_cmd ping >/dev/null 2>&1; then
+        return 0
+    fi
+    while IFS= read -r id; do
+        case "$id" in
+            mad-calendar-panel-*|mad-widget-drawer-*)
+                close_id "$id"
+                ;;
+        esac
+    done < <(eww_cmd active-windows 2>/dev/null | awk -F ': ' '{ print $1 }')
+}
+
+toggle_window() {
+    local window="$1"
+    local other="$2"
+    local monitor monitor_id safe id other_id
+    ensure_daemon
+    monitor="$(focused_monitor)"
+    monitor_id="$(focused_monitor_id)"
+    safe="$(safe_id "${monitor:-default}")"
+    id="$window-$safe"
+    other_id="$other-$safe"
+
+    if active_window_id "$id"; then
+        close_id "$id"
+        return 0
+    fi
+
+    close_id "$other_id"
+    if [[ -n "$monitor" ]] && eww_cmd open --id "$id" --screen "$monitor" "$window" >/dev/null 2>&1; then
+        return 0
+    fi
+    if [[ -n "$monitor_id" ]] && eww_cmd open --id "$id" --screen "$monitor_id" "$window" >/dev/null 2>&1; then
+        return 0
+    fi
+    eww_cmd open --id "$id" "$window"
+}
+
+case "${1:-}" in
+    calendar-toggle)
+        toggle_window mad-calendar-panel mad-widget-drawer
+        ;;
+    drawer-toggle)
+        toggle_window mad-widget-drawer mad-calendar-panel
+        ;;
+    close)
+        close_all_widgets
+        ;;
+    status)
+        ensure_daemon
+        eww_cmd active-windows 2>/dev/null | awk '/mad-calendar-panel-|mad-widget-drawer-/ { print }'
+        ;;
+    -h|--help|help|"")
+        usage
+        ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

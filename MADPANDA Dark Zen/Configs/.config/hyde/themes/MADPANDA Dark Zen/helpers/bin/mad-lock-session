@@ -17,7 +17,7 @@ log_file="$run_root/session.log"
 single_lock="$runtime_root/session.lock"
 transparent_layout="${MAD_HYPRLOCK_TRANSPARENT_LAYOUT:-$config_home/hypr/hyprlock/MADPANDA-Dark-Zen-transparent-widgets.conf}"
 transparent_config="$runtime_root/hyprlock-transparent.conf"
-surface_hide_delay_ms="${MAD_LOCK_SURFACE_HIDE_DELAY_MS:-180}"
+hide_to_overlay_delay_ms="${MAD_LOCK_HIDE_TO_OVERLAY_DELAY_MS:-120}"
 lock_acquire_timeout_ms="${MAD_LOCK_ACQUIRE_TIMEOUT_MS:-3000}"
 lock_process_ready_ms="${MAD_LOCK_PROCESS_READY_MS:-900}"
 overlay_ready_delay_ms="${MAD_LOCK_OVERLAY_READY_MS:-300}"
@@ -372,30 +372,31 @@ if [[ "$dry_run" == "1" ]]; then
     fi
     printf 'lockConfig=%s\n' "$lock_target"
     [[ -n "$fallback_reason" ]] && printf 'fallbackReason=%s\n' "$fallback_reason"
-    printf 'lockLaunch=background\n'
-    printf 'overlayReadyDelayMs=%s\n' "$overlay_ready_delay_ms"
+    printf 'lockLaunch=after-hide\n'
+    printf 'hideToOverlayDelayMs=%s\n' "$hide_to_overlay_delay_ms"
     printf 'lockAcquireTimeoutMs=%s\n' "$lock_acquire_timeout_ms"
     printf 'lockProcessReadyMs=%s\n' "$lock_process_ready_ms"
     printf 'lockAcquireFallback=process-alive-when-locked-hint-is-not-confirmed\n'
-    printf 'soundAfterOverlay=%s lock\n' "$sound_bin"
-    printf 'rgbAfterOverlay=%s lock\n' "$rgb_bin"
     if [[ "$transparent_ready" == "1" ]]; then
-        printf 'parallelAfterOverlay=sound rgb tiles surfaces\n'
+        printf 'parallelBeforeOverlay=tiles surfaces\n'
     else
-        printf 'parallelAfterOverlay=sound rgb\n'
+        printf 'parallelBeforeOverlay=none\n'
     fi
-    printf 'command=hyprlock --quiet --config %q --immediate-render --no-fade-in' "$lock_target"
-    if [[ $# -gt 0 ]]; then
-        printf ' %q' "$@"
-    fi
-    printf ' &\n'
-    printf 'command=wait-overlay-ready delay_ms=%s\n' "$overlay_ready_delay_ms"
     if [[ "$transparent_ready" == "1" ]]; then
         printf 'tiles=%s hide --dry-run\n' "$tile_bin"
         "$tile_bin" hide --dry-run || true
         printf 'surfaces=%s hide --dry-run\n' "$surface_bin"
         "$surface_bin" hide --dry-run || true
     fi
+    printf 'command=wait-hide-to-overlay delay_ms=%s\n' "$hide_to_overlay_delay_ms"
+    printf 'parallelWithOverlay=hyprlock rgb sound\n'
+    printf 'rgbWithOverlay=%s lock\n' "$rgb_bin"
+    printf 'soundWithOverlay=%s lock\n' "$sound_bin"
+    printf 'command=hyprlock --quiet --config %q --immediate-render --no-fade-in' "$lock_target"
+    if [[ $# -gt 0 ]]; then
+        printf ' %q' "$@"
+    fi
+    printf ' &\n'
     printf 'command=wait-for-lock-acquired timeout_ms=%s\n' "$lock_acquire_timeout_ms"
     printf 'command=wait hyprlock\n'
     printf 'restore=parallel surfaces wallpapers tiles xray\n'
@@ -435,33 +436,11 @@ else
 fi
 
 trap restore_session EXIT INT TERM
-log "lock_launch=start config=$lock_target fallback=$fallback_reason"
-(exec 9>&-; exec hyprlock --quiet --config "$lock_target" --immediate-render --no-fade-in "$@" >>"$log_file" 2>&1) &
-lock_pid="$!"
-log "lock_launch=pid pid=$lock_pid"
-
-if ! wait_for_overlay_ready "$lock_pid"; then
-    log "overlay_ready=failed pid=$lock_pid delay_ms=$overlay_ready_delay_ms"
-    kill_pid_if_alive "$lock_pid"
-    notify_failure "Hyprlock exited before the Dark Zen overlay was ready. Desktop state was restored."
-    exit 1
-fi
-log "overlay_ready=done pid=$lock_pid delay_ms=$overlay_ready_delay_ms"
-
-if cmd_exists "$sound_bin"; then
-    log "sound=lock"
-    run_without_single_lock_fd "$sound_bin" lock >>"$log_file" 2>&1 &
-fi
-
-if cmd_exists "$rgb_bin"; then
-    log "rgb=lock"
-    run_without_single_lock_fd "$rgb_bin" lock >>"$log_file" 2>&1 &
-fi
 
 if [[ "$transparent_ready" == "1" && "$lock_target" == "$transparent_config" && -z "$fallback_reason" ]]; then
     tile_hide_pid=""
     surface_hide_pid=""
-    log "post_overlay_parallel=start"
+    log "pre_overlay_hide_parallel=start"
     run_without_single_lock_fd "$tile_bin" hide >>"$log_file" 2>&1 &
     tile_hide_pid="$!"
     run_without_single_lock_fd "$surface_bin" hide >>"$log_file" 2>&1 &
@@ -480,7 +459,26 @@ if [[ "$transparent_ready" == "1" && "$lock_target" == "$transparent_config" && 
     else
         log "surfaces=hide_failed"
     fi
-    log "post_overlay_parallel=done"
+    log "pre_overlay_hide_parallel=done"
+fi
+
+log "hide_to_overlay_delay=start delay_ms=$hide_to_overlay_delay_ms"
+sleep_ms "$hide_to_overlay_delay_ms"
+log "hide_to_overlay_delay=done"
+
+log "lock_launch=start config=$lock_target fallback=$fallback_reason"
+(exec 9>&-; exec hyprlock --quiet --config "$lock_target" --immediate-render --no-fade-in "$@" >>"$log_file" 2>&1) &
+lock_pid="$!"
+log "lock_launch=pid pid=$lock_pid"
+
+if cmd_exists "$rgb_bin"; then
+    log "rgb=lock"
+    run_without_single_lock_fd "$rgb_bin" lock >>"$log_file" 2>&1 &
+fi
+
+if cmd_exists "$sound_bin"; then
+    log "sound=lock"
+    run_without_single_lock_fd "$sound_bin" lock >>"$log_file" 2>&1 &
 fi
 
 if ! wait_for_lock_acquired "$lock_pid"; then

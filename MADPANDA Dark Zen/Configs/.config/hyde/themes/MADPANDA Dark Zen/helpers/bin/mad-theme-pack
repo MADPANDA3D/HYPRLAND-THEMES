@@ -658,6 +658,7 @@ idle hooks|hypridle|hypridle|optional lock/unlock hooks
 wallpaper daemon|awww|awww|optional wallpaper handling
 Eww bar|eww,socat|eww socat|optional Dark Zen Eww bar
 caffeine idle inhibitor|systemd-inhibit|systemd|optional Eww caffeine/autolock toggle
+Chrome media bridge|google-chrome-stable,google-chrome,chromium|google-chrome or chromium|optional Pandora album-art bridge
 SDDM login manager|sddm,sddm-greeter|sddm|optional SDDM login theme activation
 tree sync|rsync|rsync|required for promote/build
 EOF
@@ -1259,11 +1260,17 @@ mad-display-gamma
 mad-screenshot-region
 mad-screenshot-active-window
 mad-screenshot-full
+mad-keybinds-hint
 mad-settings-menu
 mad-wallpaper-theme
 mad-theme-mode
 mad-bar-provider
 mad-caffeine
+mad-media-control
+mad-pandora-native-host
+mad-pandora-dom-probe
+mad-chrome-dark-zen
+mad-eww-widgets
 mad-eww-bar
 mad-eww-testbar
 EOF
@@ -1702,6 +1709,53 @@ ensure_usability_lock_bind() {
     rm -f "$tmp"
 }
 
+ensure_usability_daily_binds() {
+    local file="$1"
+    local keybind_bin="$2"
+    local widget_bin="$3"
+    local screenshot_bin="$4"
+    local chrome_bin="$5"
+    local tmp
+
+    [[ -r "$file" ]] || return 0
+    tmp="$(mktemp)"
+    awk -v keybind_bin="$keybind_bin" -v widget_bin="$widget_bin" -v screenshot_bin="$screenshot_bin" -v chrome_bin="$chrome_bin" '
+        $0 == "# Theme-owned MADPANDA daily shortcuts." { next }
+        $0 == "unbind = , Print" { next }
+        $0 == "unbind = $mainMod, E" { next }
+        $0 == "unbind = $mainMod, F" { next }
+        $0 == "unbind = $mainMod, slash" { next }
+        $0 == "unbind = $mainMod, X" { next }
+        $0 == "bind = , Print, exec, /home/leo/.local/bin/mad-screenshot-full" { next }
+        $0 == "bind = , Print, exec, " screenshot_bin { next }
+        $0 == "bind = $mainMod, E, exec, google-chrome-stable" { next }
+        $0 == "bind = $mainMod, E, exec, google-chrome" { next }
+        $0 == "bind = $mainMod, E, exec, chromium" { next }
+        $0 == "bind = $mainMod, E, exec, " chrome_bin { next }
+        $0 == "bind = $mainMod, F, exec, pkill -x rofi || hyde-shell keybinds_hint c" { next }
+        $0 == "bind = $mainMod, F, exec, " keybind_bin { next }
+        $0 == "bind = $mainMod, slash, exec, pkill -x rofi || hyde-shell keybinds_hint c" { next }
+        $0 == "bind = $mainMod, slash, exec, " keybind_bin { next }
+        $0 == "bind = $mainMod, X, exec, " widget_bin " drawer-toggle" { next }
+        { print }
+    ' "$file" | awk 'NF { blank = 0; print; next } blank == 0 { print; blank = 1 }' >"$tmp"
+    {
+        printf '\n# Theme-owned MADPANDA daily shortcuts.\n'
+        printf 'unbind = , Print\n'
+        printf 'unbind = $mainMod, E\n'
+        printf 'unbind = $mainMod, F\n'
+        printf 'unbind = $mainMod, slash\n'
+        printf 'unbind = $mainMod, X\n'
+        printf 'bind = , Print, exec, %s\n' "$screenshot_bin"
+        printf 'bind = $mainMod, E, exec, %s\n' "$chrome_bin"
+        printf 'bind = $mainMod, F, exec, %s\n' "$keybind_bin"
+        printf 'bind = $mainMod, slash, exec, %s\n' "$keybind_bin"
+        printf 'bind = $mainMod, X, exec, %s drawer-toggle\n' "$widget_bin"
+    } >>"$tmp"
+    install -m 0644 "$tmp" "$file"
+    rm -f "$tmp"
+}
+
 install_window_close_hooks() {
     local run_root="$1"
     local wrapper="$local_bin/mad-window-close"
@@ -1886,6 +1940,22 @@ apply_theme() {
     fi
     stage_helper_payload "$live_dir"
     install_theme_helpers "$run_root" "$live_dir"
+    if [[ -x "$local_bin/mad-pandora-native-host" ]]; then
+        "$local_bin/mad-pandora-native-host" --install-manifest >"$run_root/logs/pandora-native-host.log" 2>&1 || true
+    fi
+    if [[ -x "$local_bin/mad-chrome-dark-zen" ]]; then
+        "$local_bin/mad-chrome-dark-zen" --install-desktop >"$run_root/logs/chrome-desktop.log" 2>&1 || true
+        "$local_bin/mad-chrome-dark-zen" --install-extension >"$run_root/logs/chrome-extension.log" 2>&1 || true
+    fi
+    if [[ -r "$madpanda_hypr_conf" ]]; then
+        backup_if_exists "$madpanda_hypr_conf" "$run_root"
+        ensure_usability_daily_binds \
+            "$madpanda_hypr_conf" \
+            "$local_bin/mad-keybinds-hint" \
+            "$local_bin/mad-eww-widgets" \
+            "$local_bin/mad-screenshot-full" \
+            "$local_bin/mad-chrome-dark-zen"
+    fi
     if feature_enabled "$name" sounds || feature_enabled "$name" effects; then
         install_sound_assets "$manifest" "$live_dir" "$source_dir" "$run_root"
     fi

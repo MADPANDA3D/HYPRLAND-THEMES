@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage:
+  mad-media-control previous
+  mad-media-control play-pause
+  mad-media-control next
+
+Routes normal media controls through playerctl. For fresh Pandora playback,
+previous/next are queued for the Dark Zen Pandora bridge because Chrome/MPRIS
+does not expose those actions reliably.
+EOF
+}
+
+cache_file="${XDG_CACHE_HOME:-$HOME/.cache}/madpanda/pandora-media/current.json"
+
+clean_action() {
+    case "${1:-}" in
+        previous|play-pause|next) printf '%s\n' "$1" ;;
+        *) usage >&2; exit 2 ;;
+    esac
+}
+
+pandora_cache_fresh() {
+    [[ -r "$cache_file" ]] || return 1
+    python3 - "$cache_file" <<'PY'
+import json
+import sys
+import time
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    raise SystemExit(1)
+if payload.get("source") != "pandora":
+    raise SystemExit(1)
+title = str(payload.get("title") or "").strip().lower()
+artist = str(payload.get("artist") or "").strip()
+album = str(payload.get("album") or "").strip()
+art_url = str(payload.get("artUrl") or "").strip()
+art_path = str(payload.get("artPath") or "").strip()
+if title in {"bridge self-test", "plan smoke"}:
+    raise SystemExit(1)
+if not artist and not album and not art_url and not art_path:
+    if "service unavailable" in title or title.startswith(("500 ", "502 ", "503 ", "504 ")):
+        raise SystemExit(1)
+age = time.time() - int(payload.get("updatedAtEpoch") or 0)
+raise SystemExit(0 if 0 <= age < 180 else 1)
+PY
+}
+
+queue_pandora_control() {
+    local action="$1"
+    command -v mad-pandora-native-host >/dev/null 2>&1 || return 1
+    mad-pandora-native-host --queue-control "$action" >/dev/null
+}
+
+playerctl_action() {
+    local action="$1"
+    command -v playerctl >/dev/null 2>&1 || return 1
+    case "$action" in
+        previous) playerctl previous ;;
+        play-pause) playerctl play-pause ;;
+        next) playerctl next ;;
+    esac
+}
+
+case "${1:-}" in
+    -h|--help|help|"")
+        usage
+        exit 0
+        ;;
+esac
+
+action="$(clean_action "${1:-}")"
+
+case "$action" in
+    play-pause)
+        playerctl_action "$action" || queue_pandora_control "$action"
+        ;;
+    previous|next)
+        if pandora_cache_fresh; then
+            playerctl_action "$action" >/dev/null 2>&1 && exit 0
+            queue_pandora_control "$action"
+            exit 0
+        fi
+        playerctl_action "$action"
+        ;;
+esac

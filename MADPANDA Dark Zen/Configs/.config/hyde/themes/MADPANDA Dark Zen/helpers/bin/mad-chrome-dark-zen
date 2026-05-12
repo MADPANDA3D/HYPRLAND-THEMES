@@ -1,0 +1,452 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -a MADPANDA "Dark Zen Chrome" "$1"
+    else
+        printf 'Dark Zen Chrome: %s\n' "$1" >&2
+    fi
+}
+
+state_dir() {
+    printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/pandora-media"
+}
+
+extension_id_file() {
+    printf '%s\n' "$(state_dir)/extension-id"
+}
+
+extension_id() {
+    local id_file value
+    id_file="$(extension_id_file)"
+    value="$(cat "$id_file" 2>/dev/null || true)"
+    if [[ "$value" =~ ^[a-p]{32}$ ]]; then
+        printf '%s\n' "$value"
+    else
+        printf '%s\n' "gbhipccghddhjemgmoeaegcpbglffkjn"
+    fi
+}
+
+install_desktop_entry() {
+    local source="/usr/share/applications/google-chrome.desktop"
+    local target="${XDG_DATA_HOME:-$HOME/.local/share}/applications/google-chrome.desktop"
+    local self
+    self="$(command -v mad-chrome-dark-zen 2>/dev/null || true)"
+    [[ -n "$self" ]] || self="$(realpath "$0")"
+    [[ -r "$source" ]] || {
+        notify "System Chrome desktop file was not found."
+        return 1
+    }
+
+    mkdir -p "$(dirname "$target")" "${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/chrome-desktop"
+    if [[ -r "$target" ]] && ! grep -q '^X-MADPANDA-Dark-Zen-Chrome-Bridge=true$' "$target"; then
+        cp -a "$target" "${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/chrome-desktop/google-chrome.desktop.previous"
+    fi
+
+    awk -v self="$self" '
+        BEGIN { section = "desktop"; marker = 0 }
+        /^\[Desktop Entry\]/ { section = "desktop"; print; next }
+        /^\[Desktop Action new-window\]/ { section = "new-window"; print; next }
+        /^\[Desktop Action new-private-window\]/ { section = "incognito"; print; next }
+        /^\[/ { section = "other" }
+        /^Exec=/ {
+            if (section == "new-window") {
+                print "Exec=" self " --new-window"
+            } else if (section == "incognito") {
+                print "Exec=" self " --incognito"
+            } else if (section == "desktop") {
+                print "Exec=" self " %U"
+            } else {
+                print
+            }
+            next
+        }
+        /^X-MADPANDA-Dark-Zen-Chrome-Bridge=/ { marker = 1; next }
+        { print }
+        END {
+            if (marker == 0) {
+                print "X-MADPANDA-Dark-Zen-Chrome-Bridge=true"
+            }
+        }
+    ' "$source" >"$target"
+
+    xdg-mime default google-chrome.desktop x-scheme-handler/http >/dev/null 2>&1 || true
+    xdg-mime default google-chrome.desktop x-scheme-handler/https >/dev/null 2>&1 || true
+    xdg-mime default google-chrome.desktop text/html >/dev/null 2>&1 || true
+    xdg-settings set default-web-browser google-chrome.desktop >/dev/null 2>&1 || true
+    update-desktop-database "$(dirname "$target")" >/dev/null 2>&1 || true
+}
+
+find_extension_dir() {
+    local candidate
+    for candidate in \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/madpanda/dark-zen/chrome/pandora-media-bridge" \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/MADPANDA Dark Zen/chrome/pandora-media-bridge" \
+        "$HOME/.config/hyde/themes/MADPANDA Dark Zen/chrome/pandora-media-bridge" \
+        "$HOME/the-lab/project-linux/project-linux/themes/MADPANDA-Dark-Zen/chrome/pandora-media-bridge"; do
+        if [[ -r "$candidate/manifest.json" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+source_extension_dir() {
+    local candidate
+    for candidate in \
+        "${XDG_CONFIG_HOME:-$HOME/.config}/hyde/themes/MADPANDA Dark Zen/chrome/pandora-media-bridge" \
+        "$HOME/.config/hyde/themes/MADPANDA Dark Zen/chrome/pandora-media-bridge" \
+        "$HOME/the-lab/project-linux/project-linux/themes/MADPANDA-Dark-Zen/chrome/pandora-media-bridge"; do
+        if [[ -r "$candidate/manifest.json" ]]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+ensure_runtime_extension_dir() {
+    local source_dir="$1"
+    local runtime_dir="${XDG_DATA_HOME:-$HOME/.local/share}/madpanda/dark-zen/chrome/pandora-media-bridge"
+    [[ -n "$source_dir" && -r "$source_dir/manifest.json" ]] || return 1
+    mkdir -p "$(dirname "$runtime_dir")"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "$source_dir/" "$runtime_dir/" >/dev/null 2>&1 || return 1
+    else
+        rm -rf "$runtime_dir"
+        mkdir -p "$runtime_dir"
+        cp -a "$source_dir"/. "$runtime_dir"/
+    fi
+    printf '%s\n' "$runtime_dir"
+}
+
+chrome_bin() {
+    command -v google-chrome-stable ||
+        command -v google-chrome ||
+        command -v chromium ||
+        command -v chromium-browser
+}
+
+chrome_running() {
+    pgrep -x chrome >/dev/null 2>&1 || pgrep -x chromium >/dev/null 2>&1
+}
+
+bridge_loaded() {
+    [[ -n "$extension_dir" ]] || return 1
+    extension_registered
+}
+
+bridge_flag_present() {
+    pgrep -af -- "--load-extension=.*pandora-media-bridge" >/dev/null 2>&1
+}
+
+root_process() {
+    if pgrep -x chrome >/dev/null 2>&1; then
+        pgrep -af '^/opt/google/chrome/chrome($| )|^/usr/bin/google-chrome|^google-chrome' | head -n 1 || true
+    elif pgrep -x chromium >/dev/null 2>&1; then
+        pgrep -af '^/usr/lib/chromium/chromium($| )|^/usr/bin/chromium|^chromium' | head -n 1 || true
+    fi
+}
+
+profile_root() {
+    local root_cmd profile
+    root_cmd="$(root_process)"
+    profile="$(tr ' ' '\n' <<<"$root_cmd" | awk -F= '/^--user-data-dir=/{print substr($0, index($0, "=") + 1); exit}')"
+    if [[ -n "$profile" ]]; then
+        printf '%s\n' "$profile"
+        return 0
+    fi
+    case "${browser:-}" in
+        *chromium*) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/chromium" ;;
+        *) printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/google-chrome" ;;
+    esac
+}
+
+extension_registered() {
+    local profile prefs
+    profile="$(profile_root)"
+    prefs="$profile/Default/Preferences"
+    [[ -r "$prefs" ]] || return 1
+    grep -q 'MADPANDA Pandora Media Bridge\|gbhipccghddhjemgmoeaegcpbglffkjn' "$prefs"
+}
+
+browser_major_version() {
+    local version
+    [[ -n "${browser:-}" ]] || return 1
+    version="$("$browser" --version 2>/dev/null | grep -Eo '[0-9]+' | head -n 1 || true)"
+    [[ -n "$version" ]] || return 1
+    printf '%s\n' "$version"
+}
+
+command_line_extension_supported() {
+    local version
+    case "${browser:-}" in
+        *google-chrome*|*/chrome)
+            version="$(browser_major_version 2>/dev/null || true)"
+            [[ -n "$version" && "$version" -ge 137 ]] && return 1
+            ;;
+    esac
+    return 0
+}
+
+process_start_epoch() {
+    local pid="$1"
+    [[ -n "$pid" && -d "/proc/$pid" ]] || return 1
+    stat -c '%Y' "/proc/$pid" 2>/dev/null
+}
+
+manifest_epoch() {
+    [[ -n "${extension_dir:-}" && -r "$extension_dir/manifest.json" ]] || return 1
+    stat -c '%Y' "$extension_dir/manifest.json" 2>/dev/null
+}
+
+external_extension_json_path() {
+    printf '/opt/google/chrome/extensions/%s.json\n' "$(extension_id)"
+}
+
+bridge_status() {
+    local root_cmd root_pid root_started manifest_mtime restart_needed="false"
+    local command_supported="true" manual_needed="false" profile
+    root_cmd="$(root_process)"
+    root_pid="${root_cmd%% *}"
+    root_started="$(process_start_epoch "$root_pid" 2>/dev/null || true)"
+    manifest_mtime="$(manifest_epoch 2>/dev/null || true)"
+    profile="$(profile_root)"
+
+    if ! command_line_extension_supported; then
+        command_supported="false"
+    fi
+
+    if chrome_running; then
+        if ! bridge_loaded; then
+            restart_needed="true"
+        elif [[ -n "$root_started" && -n "$manifest_mtime" && "$manifest_mtime" -gt "$root_started" ]]; then
+            restart_needed="true"
+        fi
+    fi
+
+    if [[ "$command_supported" == "false" ]] && ! extension_registered; then
+        manual_needed="true"
+        restart_needed="false"
+    fi
+
+    printf 'browser=%s\n' "${browser:-missing}"
+    printf 'browserMajorVersion=%s\n' "$(browser_major_version 2>/dev/null || printf unknown)"
+    printf 'extensionId=%s\n' "$(extension_id)"
+    printf 'extensionDir=%s\n' "${extension_dir:-missing}"
+    printf 'manualLoadPath=%s\n' "${extension_dir:-missing}"
+    printf 'externalExtensionJson=%s\n' "$(external_extension_json_path)"
+    printf 'externalExtensionJsonExists=%s\n' "$([[ -r "$(external_extension_json_path)" ]] && printf true || printf false)"
+    printf 'extensionManifest=%s\n' "$([[ -n "${extension_dir:-}" && -r "$extension_dir/manifest.json" ]] && printf present || printf missing)"
+    printf 'chromeRunning=%s\n' "$(chrome_running && printf true || printf false)"
+    printf 'bridgeFlagPresent=%s\n' "$(bridge_flag_present && printf true || printf false)"
+    printf 'extensionRegistered=%s\n' "$(extension_registered && printf true || printf false)"
+    printf 'bridgeLoaded=%s\n' "$(bridge_loaded && printf true || printf false)"
+    printf 'commandLineLoadExtensionSupported=%s\n' "$command_supported"
+    printf 'manualExtensionInstallNeeded=%s\n' "$manual_needed"
+    printf 'rootProcessStartedEpoch=%s\n' "${root_started:-unknown}"
+    printf 'extensionManifestEpoch=%s\n' "${manifest_mtime:-unknown}"
+    printf 'restartNeeded=%s\n' "$restart_needed"
+    printf 'profileRoot=%s\n' "$profile"
+    printf 'rootProcess=%s\n' "${root_cmd:-none}"
+}
+
+derive_extension_id() {
+    python3 - "$1" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+data = pathlib.Path(sys.argv[1]).read_bytes()
+digest = hashlib.sha256(data).digest()[:16]
+alphabet = "abcdefghijklmnop"
+print("".join(alphabet[b >> 4] + alphabet[b & 0x0F] for b in digest))
+PY
+}
+
+install_external_extension() {
+    local source_dir="$extension_dir"
+    local state crx_dir pack_dir pem pub_der pub_b64 generated_id version crx_path external_json external_payload
+
+    [[ -n "$source_dir" && -r "$source_dir/manifest.json" ]] || {
+        notify "Pandora media bridge extension was not found."
+        return 1
+    }
+    [[ -n "${browser:-}" ]] || {
+        notify "Chrome/Chromium is not installed; skipped Pandora bridge external extension packaging."
+        return 0
+    }
+    command -v openssl >/dev/null 2>&1 || {
+        notify "openssl is required to package the Pandora media bridge."
+        return 1
+    }
+    command -v python3 >/dev/null 2>&1 || {
+        notify "python3 is required to package the Pandora media bridge."
+        return 1
+    }
+    command -v jq >/dev/null 2>&1 || {
+        notify "jq is required to package the Pandora media bridge."
+        return 1
+    }
+
+    state="$(state_dir)"
+    crx_dir="${XDG_DATA_HOME:-$HOME/.local/share}/madpanda/dark-zen/chrome"
+    pack_dir="$state/pack/pandora-media-bridge"
+    pem="$state/pandora-media-bridge.pem"
+    pub_der="$state/pandora-media-bridge-public.der"
+    crx_path="$crx_dir/pandora-media-bridge.crx"
+    mkdir -p "$state/pack" "$crx_dir"
+
+    if [[ ! -r "$pem" ]]; then
+        openssl genrsa -out "$pem" 2048 >/dev/null 2>&1
+        chmod 0600 "$pem"
+    fi
+    openssl rsa -in "$pem" -pubout -outform DER -out "$pub_der" >/dev/null 2>&1
+    generated_id="$(derive_extension_id "$pub_der")"
+    pub_b64="$(base64 -w 0 "$pub_der")"
+    version="$(jq -r '.version' "$source_dir/manifest.json")"
+
+    rm -rf "$pack_dir"
+    mkdir -p "$pack_dir"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a --delete "$source_dir/" "$pack_dir/" >/dev/null 2>&1
+    else
+        cp -a "$source_dir"/. "$pack_dir"/
+    fi
+    jq --arg key "$pub_b64" '.key = $key' "$source_dir/manifest.json" >"$pack_dir/manifest.json"
+
+    rm -f "$pack_dir.crx"
+    "$browser" --pack-extension="$pack_dir" --pack-extension-key="$pem" >/dev/null 2>&1
+    [[ -s "$pack_dir.crx" ]] || {
+        notify "Chrome did not produce the Pandora bridge CRX package."
+        return 1
+    }
+    mv "$pack_dir.crx" "$crx_path"
+    chmod 0644 "$crx_path"
+
+    printf '%s\n' "$generated_id" >"$(extension_id_file)"
+    external_json="$(external_extension_json_path)"
+    external_payload="$(printf '{\n  "external_crx": "%s",\n  "external_version": "%s"\n}\n' "$crx_path" "$version")"
+
+    if ! command -v sudo >/dev/null 2>&1 || ! sudo -n true >/dev/null 2>&1; then
+        if command -v mad-pandora-native-host >/dev/null 2>&1; then
+            mad-pandora-native-host --install-manifest >/dev/null 2>&1 || true
+        fi
+        printf 'extensionId=%s\n' "$generated_id"
+        printf 'crx=%s\n' "$crx_path"
+        printf 'externalExtensionJson=%s\n' "$external_json"
+        printf 'version=%s\n' "$version"
+        printf 'Chrome external extension install needs sudo. Run:\n'
+        printf 'sudo install -d -m 0755 %q\n' "$(dirname "$external_json")"
+        printf "cat <<'JSON' | sudo tee %q >/dev/null\n%sJSON\n" "$external_json" "$external_payload"
+        printf 'sudo chmod 0644 %q\n' "$external_json"
+        return 0
+    fi
+
+    sudo install -d -m 0755 "$(dirname "$external_json")"
+    printf '%s' "$external_payload" |
+        sudo tee "$external_json" >/dev/null
+    sudo chmod 0644 "$external_json"
+
+    if command -v mad-pandora-native-host >/dev/null 2>&1; then
+        mad-pandora-native-host --install-manifest >/dev/null 2>&1 || true
+    fi
+
+    printf 'extensionId=%s\n' "$generated_id"
+    printf 'crx=%s\n' "$crx_path"
+    printf 'externalExtensionJson=%s\n' "$external_json"
+    printf 'version=%s\n' "$version"
+}
+
+launch_pandora_probe() {
+    local port="${MAD_PANDORA_PROBE_PORT:-9222}"
+    local probe_profile="${MAD_PANDORA_PROBE_USER_DATA_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/chrome-pandora-probe-profile}"
+    local source_profile="${MAD_PANDORA_PROBE_SOURCE_PROFILE:-$HOME/.config/google-chrome}"
+    shift || true
+    if (($# == 0)); then
+        set -- --new-window "https://pandora.com/"
+    fi
+
+    mkdir -p "$(dirname "$probe_profile")"
+    if [[ -d "$source_profile" && ! -e "$probe_profile/Local State" ]] && command -v rsync >/dev/null 2>&1; then
+        rsync -a \
+            --exclude='Singleton*' \
+            --exclude='Crash Reports' \
+            --exclude='Default/Cache' \
+            --exclude='Default/Code Cache' \
+            --exclude='Default/GPUCache' \
+            --exclude='Default/DawnCache' \
+            --exclude='Default/GrShaderCache' \
+            --exclude='Default/ShaderCache' \
+            --exclude='Default/Service Worker/CacheStorage' \
+            "$source_profile/" "$probe_profile/" >/dev/null 2>&1 || true
+    fi
+    mkdir -p "$probe_profile"
+    rm -f "$probe_profile"/Singleton* "$probe_profile"/Default/Singleton* 2>/dev/null || true
+
+    if [[ -n "$extension_dir" ]] && command_line_extension_supported; then
+        exec "$browser" \
+            --user-data-dir="$probe_profile" \
+            --profile-directory=Default \
+            --remote-debugging-address=127.0.0.1 \
+            --remote-debugging-port="$port" \
+            --load-extension="$extension_dir" \
+            "$@"
+    fi
+
+    notify "Pandora media bridge extension was not found; opening Chrome probe without it."
+    exec "$browser" \
+        --user-data-dir="$probe_profile" \
+        --profile-directory=Default \
+        --remote-debugging-address=127.0.0.1 \
+        --remote-debugging-port="$port" \
+        "$@"
+}
+
+extension_source_dir="$(source_extension_dir || true)"
+extension_dir="$(ensure_runtime_extension_dir "$extension_source_dir" 2>/dev/null || find_extension_dir || true)"
+browser="$(chrome_bin || true)"
+
+if [[ "${1:-}" == "--install-desktop" ]]; then
+    install_desktop_entry
+    exit $?
+fi
+if [[ "${1:-}" == "--bridge-status" ]]; then
+    bridge_status
+    exit 0
+fi
+if [[ "${1:-}" == "--install-extension" ]]; then
+    install_external_extension
+    exit $?
+fi
+
+if [[ -z "$browser" ]]; then
+    notify "Chrome/Chromium is not installed."
+    exit 1
+fi
+
+if [[ "${1:-}" == "--pandora-probe" ]]; then
+    if [[ -n "$extension_dir" ]] && command -v mad-pandora-native-host >/dev/null 2>&1; then
+        mad-pandora-native-host --install-manifest >/dev/null 2>&1 || true
+    fi
+    launch_pandora_probe "$@"
+fi
+
+if [[ -n "$extension_dir" ]] && command -v mad-pandora-native-host >/dev/null 2>&1; then
+    mad-pandora-native-host --install-manifest >/dev/null 2>&1 || true
+fi
+
+if (($# == 0)); then
+    set -- --new-window
+fi
+
+if [[ -n "$extension_dir" ]] && command_line_extension_supported; then
+    exec "$browser" --load-extension="$extension_dir" "$@"
+fi
+
+if [[ -z "$extension_dir" ]]; then
+    notify "Pandora media bridge extension was not found; opening Chrome normally."
+fi
+exec "$browser" "$@"

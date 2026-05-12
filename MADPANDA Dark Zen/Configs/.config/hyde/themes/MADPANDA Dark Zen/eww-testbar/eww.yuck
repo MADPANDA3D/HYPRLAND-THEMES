@@ -27,7 +27,10 @@
 (defpoll current_memory :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-memory.sh")
 (defpoll current_cpu :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-cpu.sh")
 (defpoll current_cpu_temp :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-temperature.sh")
+(defpoll current_cpu_temp_value :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-cpu-temp-value.sh")
 (defpoll current_gpu :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-gpu.sh")
+(defpoll current_gpu_usage :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-gpu-usage.sh")
+(defpoll current_gpu_temp_value :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-gpu-temp-value.sh")
 (defpoll current_weather :interval "15m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-weather.sh")
 (defpoll current_weather_compact :interval "15m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-weather-compact.sh")
 (defpoll current_updates :interval "60m" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-updates.sh")
@@ -36,6 +39,12 @@
 (defpoll bluetooth_icon :interval "10s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-bluetooth-icon.sh")
 (defpoll current_caffeine :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-caffeine.sh")
 (defpoll caffeine_icon :interval "5s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-caffeine-icon.sh")
+(defpoll drawer_calendar :interval "1h" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-calendar.sh")
+(defpoll media_title :interval "3s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-media-title.sh")
+(defpoll media_artist :interval "3s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-media-artist.sh")
+(defpoll media_status :interval "3s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-media-status.sh")
+(defpoll media_art_widget :interval "3s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-media-art.sh")
+(defpoll media_play_pause_icon :interval "2s" "$HOME/.config/madpanda/eww-testbar/MADPANDA-Dark-Zen/scripts/get-media-play-pause-icon.sh")
 
 (defwidget launcher []
   (eventbox :onhover "${ewwcmd} update show_power=true"
@@ -254,7 +263,8 @@
 (defwidget clock-widget []
   (eventbox :onhover "${ewwcmd} update show_clock=true"
             :onhoverlost "${ewwcmd} update show_clock=false"
-            :cursor "default"
+            :onclick "mad-eww-widgets calendar-toggle"
+            :cursor "pointer"
     (box :class "pill clock-pill"
          :orientation "horizontal"
          :space-evenly false
@@ -263,6 +273,80 @@
                 :duration "220ms"
                 :reveal show_clock
         (label :class "clock-detail" :text clock_full)))))
+
+(defwidget drawer-calendar-widget []
+  (box :class "drawer-card calendar-card"
+       :orientation "vertical"
+       :space-evenly false
+    (literal :content drawer_calendar)))
+
+(defwidget drawer-media-widget []
+  (box :class "drawer-card media-card"
+       :orientation "vertical"
+       :space-evenly false
+    (box :orientation "horizontal" :space-evenly false :spacing 10
+      (literal :content media_art_widget)
+      (box :orientation "vertical" :space-evenly false
+        (label :class "drawer-title media-title"
+               :text media_title
+               :truncate true
+               :limit-width 24)
+        (label :class "drawer-subtitle"
+               :text media_artist
+               :truncate true
+               :limit-width 24)
+        (label :class "drawer-subtitle"
+               :text media_status)))
+    (box :class "media-controls"
+         :orientation "horizontal"
+         :space-evenly true
+         :spacing 18
+      (button :tooltip "Previous" :onclick "mad-media-control previous" "")
+      (button :tooltip "Play/Pause"
+              :onclick "mad-media-control play-pause"
+        (label :text media_play_pause_icon))
+      (button :tooltip "Next" :onclick "mad-media-control next" ""))))
+
+(defwidget vital-meter [name value text]
+  (box :class "vital-meter"
+       :orientation "vertical"
+       :space-evenly false
+    (label :class "vital-name" :text name)
+    (label :class "vital-value" :text text)
+    (progress :class "vital-progress"
+              :orientation "vertical"
+              :flipped true
+              :value value)))
+
+(defwidget drawer-resource-widget []
+  (box :class "drawer-card resource-card"
+       :orientation "vertical"
+       :space-evenly false
+    (label :class "drawer-title" :text "System Vitals")
+    (box :class "vital-meter-strip"
+         :orientation "horizontal"
+         :space-evenly true
+         :spacing 8
+      (vital-meter :name "CPU" :value current_cpu :text "${current_cpu}%")
+      (vital-meter :name "TMP" :value current_cpu_temp_value :text current_cpu_temp)
+      (vital-meter :name "GPU" :value current_gpu_usage :text "${current_gpu_usage}%")
+      (vital-meter :name "G TMP" :value current_gpu_temp_value :text "${current_gpu_temp_value}C")
+      (vital-meter :name "MEM" :value current_memory :text "${current_memory}%"))))
+
+(defwidget calendar-panel-content []
+  (box :class "drawer-shell"
+       :orientation "vertical"
+       :space-evenly false
+    (drawer-calendar-widget)))
+
+(defwidget widget-drawer-content []
+  (box :class "drawer-shell"
+       :orientation "vertical"
+       :space-evenly false
+       :spacing 10
+    (drawer-calendar-widget)
+    (drawer-media-widget)
+    (drawer-resource-widget)))
 
 (defwidget mad-testbar-content []
   (centerbox :class "mad-testbar"
@@ -293,3 +377,25 @@
   :exclusive "true"
   :focusable "false"
   (mad-testbar-content))
+
+(defwindow mad-calendar-panel
+  :geometry (geometry :x "18px"
+                      :y "58px"
+                      :width "500px"
+                      :height "48%"
+                      :anchor "top right")
+  :stacking "fg"
+  :exclusive "false"
+  :focusable "false"
+  (calendar-panel-content))
+
+(defwindow mad-widget-drawer
+  :geometry (geometry :x "18px"
+                      :y "58px"
+                      :width "500px"
+                      :height "74%"
+                      :anchor "top right")
+  :stacking "fg"
+  :exclusive "false"
+  :focusable "false"
+  (widget-drawer-content))

@@ -15,17 +15,24 @@ sdk_registry_file="$sdk_config_dir/sdk.env"
 dry_run="0"
 assume_yes="0"
 no_prompt="0"
+install_profile="desktop"
 enable_csv=""
 disable_csv=""
 
 usage() {
     cat <<'EOF'
 Usage:
-  install.sh [--dry-run] [--yes] [--no-prompt] [--enable a,b] [--disable a,b]
+  install.sh [--dry-run] [--yes] [--no-prompt] [--profile auto|desktop|laptop-light] [--enable a,b] [--disable a,b]
 
 Installs the MADPANDA Dark Zen HyDE theme and prompts for optional modules:
 sounds, rgb, identity, effects, sddm, grub, high-res wallpapers,
 vertical wallpapers, animated wallpaper pilots, and bar provider.
+
+Profiles:
+  auto          Detect laptop/desktop and choose a matching profile.
+  laptop-light Battery-safe travel setup: Eww, sounds, identity, effects on;
+                RGB, high-res, and animated wallpapers off by default.
+  desktop      Fuller visual setup for plugged-in workstations.
 EOF
 }
 
@@ -34,6 +41,13 @@ while (($#)); do
         --dry-run) dry_run="1" ;;
         --yes) assume_yes="1" ;;
         --no-prompt) no_prompt="1" ;;
+        --profile)
+            shift
+            install_profile="${1:-desktop}"
+            ;;
+        --laptop-light)
+            install_profile="laptop-light"
+            ;;
         --enable)
             shift
             enable_csv="${1:-}"
@@ -54,6 +68,15 @@ while (($#)); do
     shift || true
 done
 
+case "$install_profile" in
+    auto|desktop|laptop-light) ;;
+    *)
+        printf 'Unknown install profile: %s\n' "$install_profile" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
 repo_root=""
 if [[ -d "$theme_dir/../../scripts" && -d "$theme_dir/../../themes" ]]; then
     repo_root="$(cd "$theme_dir/../.." && pwd)"
@@ -72,10 +95,65 @@ in_csv() {
     return 1
 }
 
+detect_machine_profile() {
+    local chassis=""
+    if compgen -G "/sys/class/power_supply/BAT*" >/dev/null; then
+        printf 'laptop-light\n'
+        return 0
+    fi
+    if command -v hostnamectl >/dev/null 2>&1; then
+        chassis="$(hostnamectl chassis 2>/dev/null || true)"
+        case "$chassis" in
+            laptop|convertible|tablet|handset) printf 'laptop-light\n'; return 0 ;;
+            desktop|tower|server|vm|container) printf 'desktop\n'; return 0 ;;
+        esac
+    fi
+    if [[ -r /sys/class/dmi/id/chassis_type ]]; then
+        case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null || true)" in
+            8|9|10|11|14|30|31|32) printf 'laptop-light\n'; return 0 ;;
+            3|4|5|6|7|13|23) printf 'desktop\n'; return 0 ;;
+        esac
+    fi
+    return 1
+}
+
+resolve_install_profile() {
+    local detected answer
+    [[ "$install_profile" == "auto" ]] || return 0
+    detected="$(detect_machine_profile || true)"
+    if [[ -n "$detected" ]]; then
+        install_profile="$detected"
+        printf 'Auto profile detected: %s\n' "$install_profile" >&2
+        return 0
+    fi
+    if [[ "$dry_run" == "1" || "$no_prompt" == "1" || "$assume_yes" == "1" ]]; then
+        install_profile="laptop-light"
+        printf 'Auto profile could not detect hardware; defaulting to laptop-light.\n' >&2
+        return 0
+    fi
+    printf 'Could not detect laptop vs desktop. Use laptop-light profile? [Y/n] ' >&2
+    read -r answer
+    case "$answer" in
+        n|N|no|NO) install_profile="desktop" ;;
+        *) install_profile="laptop-light" ;;
+    esac
+}
+
+openrgb_available() {
+    command -v OpenRGB >/dev/null 2>&1 || command -v openrgb >/dev/null 2>&1
+}
+
+browser_available() {
+    command -v google-chrome-stable >/dev/null 2>&1 ||
+        command -v google-chrome >/dev/null 2>&1 ||
+        command -v chromium >/dev/null 2>&1
+}
+
 ask_feature() {
     local feature="$1"
     local label="$2"
     local default="$3"
+    local detail="${4:-}"
     local answer
 
     if in_csv "$feature" "$enable_csv"; then
@@ -86,8 +164,16 @@ ask_feature() {
         printf '0\n'
         return 0
     fi
+    if [[ "$dry_run" == "1" ]]; then
+        printf '%s\n' "$default"
+        return 0
+    fi
     if [[ "$assume_yes" == "1" ]]; then
-        printf '1\n'
+        if [[ "$install_profile" == "laptop-light" ]]; then
+            printf '%s\n' "$default"
+        else
+            printf '1\n'
+        fi
         return 0
     fi
     if [[ "$no_prompt" == "1" ]]; then
@@ -95,6 +181,9 @@ ask_feature() {
         return 0
     fi
 
+    if [[ -n "$detail" ]]; then
+        printf '\n%s\n' "$detail" >&2
+    fi
     if [[ "$default" == "1" ]]; then
         printf '%s [Y/n] ' "$label" >&2
     else
@@ -118,10 +207,11 @@ ask_bar_provider() {
         printf 'waybar\n'
         return 0
     fi
-    if [[ "$no_prompt" == "1" || "$assume_yes" == "1" ]]; then
+    if [[ "$dry_run" == "1" || "$no_prompt" == "1" || "$assume_yes" == "1" ]]; then
         printf 'eww\n'
         return 0
     fi
+    printf '\nDark Zen Eww bar replaces visible Waybar with the approved oval top bar. Waybar remains installed and recoverable.\n' >&2
     printf 'Use Dark Zen Eww bar instead of HyDE/Waybar? [Y/n] ' >&2
     read -r answer
     case "$answer" in
@@ -230,11 +320,17 @@ install_helpers() {
         mad-screenshot-region \
         mad-screenshot-active-window \
         mad-screenshot-full \
+        mad-keybinds-hint \
         mad-settings-menu \
         mad-wallpaper-theme \
         mad-theme-mode \
         mad-bar-provider \
         mad-caffeine \
+        mad-media-control \
+        mad-pandora-native-host \
+        mad-pandora-dom-probe \
+        mad-chrome-dark-zen \
+        mad-eww-widgets \
         mad-eww-bar \
         mad-eww-testbar; do
         source="$(helper_source_for "$helper" || true)"
@@ -254,6 +350,7 @@ write_features() {
     local vertical_wallpapers="$8"
     local animated_wallpapers="$9"
     local bar_provider="${10:-eww}"
+    local profile="${11:-desktop}"
 
     if [[ "$dry_run" == "1" ]]; then
         printf '[dry-run] write %s\n' "$features_file"
@@ -262,6 +359,7 @@ write_features() {
     mkdir -p "$config_dir"
     {
         printf 'MAD_THEME_NAME=%q\n' "$theme_name"
+        printf 'MAD_THEME_INSTALL_PROFILE=%q\n' "$profile"
         printf 'MAD_THEME_FEATURE_CORE=1\n'
         printf 'MAD_THEME_FEATURE_SOUNDS=%s\n' "$sounds"
         printf 'MAD_THEME_FEATURE_RGB=%s\n' "$rgb"
@@ -370,37 +468,84 @@ install_rgb_shutdown() {
 main() {
     local vertical_default="0"
     local vertical_label="Use portrait wallpapers on vertical monitors?"
+    local sounds_default="0"
+    local rgb_default="0"
+    local identity_default="0"
+    local effects_default="0"
+    local grub_default="0"
+    local hires_default="0"
+    local animated_default="0"
+
+    resolve_install_profile
+
+    if [[ "$install_profile" == "laptop-light" ]]; then
+        sounds_default="1"
+        rgb_default="0"
+        identity_default="1"
+        effects_default="1"
+        grub_default="0"
+        hires_default="0"
+        animated_default="0"
+        vertical_default="0"
+    else
+        sounds_default="1"
+        rgb_default="0"
+        openrgb_available && rgb_default="1"
+        identity_default="1"
+        effects_default="1"
+        grub_default="0"
+        hires_default="1"
+        animated_default="1"
+        vertical_default="0"
+    fi
 
     command -v rsync >/dev/null 2>&1 || {
         printf 'rsync is required for the core theme install.\n' >&2
         exit 1
     }
 
-    sounds="$(ask_feature sounds 'Enable Dark Zen event sounds?' 0)"
-    rgb="$(ask_feature rgb 'Enable OpenRGB theme control?' 0)"
-    identity="$(ask_feature identity 'Enable Dark Zen lock/avatar/notification identity?' 0)"
-    effects="$(ask_feature effects 'Enable tile-close sound hook?' 0)"
+    sounds="$(ask_feature sounds 'Enable Dark Zen event sounds?' "$sounds_default" 'Installs theme-owned lock, unlock, boot, and tile-close sounds.')"
+    rgb="$(ask_feature rgb 'Enable OpenRGB theme control?' "$rgb_default" 'Desktop RGB automation. Laptop-light keeps this off by default for battery and hardware portability.')"
+    identity="$(ask_feature identity 'Enable Dark Zen lock/avatar/notification identity?' "$identity_default" 'Applies Dark Zen avatar, lock identity, notification styling, and related HyDE wallbash ownership.')"
+    effects="$(ask_feature effects 'Enable tile-close sound hook?' "$effects_default" 'Enables the synthetic tile close effect and sound hook without screenshot capture.')"
     if sddm_available; then
-        sddm="$(ask_feature sddm 'Use the Dark Zen SDDM login theme? Requires sudo.' 1)"
+        sddm="$(ask_feature sddm 'Use the Dark Zen SDDM login theme? Requires sudo.' 1 'Installs the Dark Zen SDDM wrapper while preserving the Corners-style login layout.')"
     else
-        sddm="$(ask_feature sddm 'SDDM is not installed. Install and use SDDM as the login manager?' 0)"
+        sddm="$(ask_feature sddm 'SDDM is not installed. Install and use SDDM as the login manager?' 0 'Optional display manager setup for systems that do not already use SDDM.')"
         if [[ "$sddm" == "1" ]]; then
             install_sddm_display_manager || sddm="0"
         fi
     fi
-    grub="$(ask_feature grub 'Install GRUB artwork? Requires sudo and never regenerates GRUB automatically.' 0)"
-    hires_wallpapers="$(ask_feature hires_wallpapers 'Install/use the 4K high-res wallpaper pack?' 0)"
-    if [[ "$no_prompt" != "1" ]] && has_vertical_outputs; then
+    grub="$(ask_feature grub 'Install GRUB artwork? Requires sudo and never regenerates GRUB automatically.' "$grub_default" 'Copies artwork only. This installer does not regenerate GRUB.')"
+    hires_wallpapers="$(ask_feature hires_wallpapers 'Install/use the 4K high-res wallpaper pack?' "$hires_default" 'Large static wallpaper tier. Laptop-light keeps standard static wallpapers by default.')"
+    if [[ "$install_profile" != "laptop-light" && "$no_prompt" != "1" ]] && has_vertical_outputs; then
         vertical_default="1"
         vertical_label="Use portrait wallpapers on detected vertical monitors?"
     fi
-    vertical_wallpapers="$(ask_feature vertical_wallpapers "$vertical_label" "$vertical_default")"
-    animated_wallpapers="$(ask_feature animated_wallpapers 'Use animated GIF wallpaper pilots where available?' 0)"
+    vertical_wallpapers="$(ask_feature vertical_wallpapers "$vertical_label" "$vertical_default" 'Uses portrait assets on rotated or portrait monitors when available.')"
+    animated_wallpapers="$(ask_feature animated_wallpapers 'Use animated GIF wallpaper pilots where available?' "$animated_default" 'Large animated wallpaper tier. Laptop-light keeps this off for battery and thermals.')"
     bar_provider="$(ask_bar_provider)"
 
     copy_core_theme
     install_helpers
-    write_features "$sounds" "$rgb" "$identity" "$effects" "$sddm" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider"
+    if [[ "$dry_run" != "1" && -x "$local_bin/mad-pandora-native-host" ]]; then
+        "$local_bin/mad-pandora-native-host" --install-manifest >/dev/null 2>&1 || true
+    fi
+    if [[ "$dry_run" == "1" ]]; then
+        if browser_available; then
+            printf '[dry-run] install Chrome/Chromium Pandora media bridge\n'
+        else
+            printf '[dry-run] skip Pandora media bridge; Chrome/Chromium not found\n'
+        fi
+    elif [[ -x "$local_bin/mad-chrome-dark-zen" ]]; then
+        if browser_available; then
+            "$local_bin/mad-chrome-dark-zen" --install-desktop >/dev/null 2>&1 || true
+            "$local_bin/mad-chrome-dark-zen" --install-extension || true
+        else
+            printf 'Chrome/Chromium not found; Pandora media bridge skipped. Install Google Chrome or Chromium and rerun this installer to enable it.\n' >&2
+        fi
+    fi
+    write_features "$sounds" "$rgb" "$identity" "$effects" "$sddm" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-bar-provider" ]]; then
         "$local_bin/mad-bar-provider" set "$bar_provider" >/dev/null 2>&1 || true
     fi

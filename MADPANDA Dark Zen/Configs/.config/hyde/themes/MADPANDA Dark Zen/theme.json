@@ -26,6 +26,44 @@
     "promoteCommand": "mad-theme-pack promote \"MADPANDA Dark Zen\"",
     "notes": "Repo is dev/staging. The installed HyDE theme is prod/stable. Publish as a non-monetized fan theme."
   },
+  "installProfiles": {
+    "auto": {
+      "description": "Detects laptop or desktop hardware and selects the matching Dark Zen profile.",
+      "command": "install.sh --profile auto",
+      "fallback": "If hardware type cannot be detected, prompt the user; noninteractive mode defaults to laptop-light."
+    },
+    "desktop": {
+      "description": "Interactive desktop install that defaults toward the fuller Dark Zen visual set for plugged-in workstations.",
+      "command": "install.sh --profile desktop",
+      "defaults": {
+        "barProvider": "eww",
+        "sounds": true,
+        "identity": true,
+        "tileEffects": true,
+        "sddm": "offer-if-available",
+        "rgb": "on-if-openrgb-available",
+        "hiresWallpapers": true,
+        "verticalWallpapers": "on-if-vertical-output-detected",
+        "animatedWallpapers": true
+      }
+    },
+    "laptop-light": {
+      "description": "Travel/laptop profile with Eww, sounds, identity, and tile effects on; RGB, high-res wallpapers, and animated wallpapers off by default.",
+      "command": "install.sh --profile laptop-light",
+      "defaults": {
+        "barProvider": "eww",
+        "sounds": true,
+        "identity": true,
+        "tileEffects": true,
+        "sddm": "offer-if-available",
+        "rgb": false,
+        "hiresWallpapers": false,
+        "verticalWallpapers": false,
+        "animatedWallpapers": false
+      },
+      "overridePolicy": "Explicit --enable and --disable flags win over profile defaults."
+    }
+  },
   "colors": {
     "background": "#040000",
     "surface": "#1D1111",
@@ -250,15 +288,50 @@
     "providerHelper": "mad-bar-provider",
     "compatibilityHelper": "mad-eww-testbar",
     "caffeineHelper": "mad-caffeine",
+    "widgetsHelper": "mad-eww-widgets",
+    "keybindHelper": "mad-keybinds-hint",
     "source": "eww-testbar",
     "runtimeConfig": "$XDG_CONFIG_HOME/madpanda/eww-testbar/MADPANDA-Dark-Zen",
     "window": "mad-testbar",
     "monitorPolicy": "one-window-per-active-hyprland-monitor",
+    "widgetDrawer": {
+      "shortcut": "SUPER+X",
+      "monitorPolicy": "focused-monitor",
+      "calendarAction": "clock-click",
+      "calendarNavigation": true,
+      "calendarOffsetState": "$XDG_STATE_HOME/madpanda/eww-widgets/calendar.env",
+      "drawerWidth": 500,
+      "drawerHeight": "74%",
+      "windows": [
+        "mad-calendar-panel",
+        "mad-widget-drawer"
+      ]
+    },
     "exclusive": true,
     "replaces": "waybar",
     "takeover": "staged",
     "rollbackCommand": "mad-eww-bar rollback-waybar",
     "notes": "Dark Zen defaults to Eww as the visible bar, but the provider can be switched to Waybar without deleting Waybar configs."
+  },
+  "mediaBridge": {
+    "pandora": {
+      "mode": "chrome-external-crx-native-host",
+      "extensionName": "MADPANDA Pandora Media Bridge",
+      "extensionDir": "chrome/pandora-media-bridge",
+      "extensionId": "generated-from-packaged-crx-key",
+      "extensionIdState": "$XDG_STATE_HOME/madpanda/pandora-media/extension-id",
+      "nativeHost": "com.madpanda.darkzen.pandora_media",
+      "nativeHostHelper": "mad-pandora-native-host",
+      "chromeHelper": "mad-chrome-dark-zen",
+      "domProbeHelper": "mad-pandora-dom-probe",
+      "mediaControlHelper": "mad-media-control",
+      "externalInstallCommand": "mad-chrome-dark-zen --install-extension",
+      "desktopEntry": "$XDG_DATA_HOME/applications/google-chrome.desktop",
+      "cacheDir": "$XDG_CACHE_HOME/madpanda/pandora-media",
+      "bind": "SUPER+E",
+      "chromeBrandedNote": "Official Google Chrome branded builds 137+ ignore command-line unpacked extension loading. Dark Zen still installs the bridge and reports the manual load path; Chromium or Chrome for Testing can load it from the helper command line.",
+      "privacy": "Stores only current Pandora title, artist, album, artwork URL, cached cover path, page URL, and timestamps. No cookies, account data, or browsing history."
+    }
   },
   "experiments": {
     "ewwTestBar": {

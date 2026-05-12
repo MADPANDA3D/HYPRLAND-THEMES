@@ -94,6 +94,9 @@ $body}"
         notify "Clipboard helper is unavailable."
         ;;
     keybinds)
+        if command -v mad-keybinds-hint >/dev/null 2>&1; then
+            exec mad-keybinds-hint
+        fi
         if command -v hyde-shell >/dev/null 2>&1; then
             exec hyde-shell keybinds_hint
         fi
