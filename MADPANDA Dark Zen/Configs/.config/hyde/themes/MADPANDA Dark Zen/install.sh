@@ -25,7 +25,7 @@ Usage:
   install.sh [--dry-run] [--yes] [--no-prompt] [--profile auto|desktop|laptop-light] [--enable a,b] [--disable a,b]
 
 Installs the MADPANDA Dark Zen HyDE theme and prompts for optional modules:
-sounds, rgb, identity, effects, sddm, grub, high-res wallpapers,
+sounds, rgb, identity, effects, keybindings, sddm, grub, high-res wallpapers,
 vertical wallpapers, animated wallpaper pilots, and bar provider.
 
 Profiles:
@@ -344,13 +344,14 @@ write_features() {
     local rgb="$2"
     local identity="$3"
     local effects="$4"
-    local sddm="$5"
-    local grub="$6"
-    local hires_wallpapers="$7"
-    local vertical_wallpapers="$8"
-    local animated_wallpapers="$9"
-    local bar_provider="${10:-eww}"
-    local profile="${11:-desktop}"
+    local keybindings="$5"
+    local sddm="$6"
+    local grub="$7"
+    local hires_wallpapers="$8"
+    local vertical_wallpapers="$9"
+    local animated_wallpapers="${10}"
+    local bar_provider="${11:-eww}"
+    local profile="${12:-desktop}"
 
     if [[ "$dry_run" == "1" ]]; then
         printf '[dry-run] write %s\n' "$features_file"
@@ -365,6 +366,7 @@ write_features() {
         printf 'MAD_THEME_FEATURE_RGB=%s\n' "$rgb"
         printf 'MAD_THEME_FEATURE_IDENTITY=%s\n' "$identity"
         printf 'MAD_THEME_FEATURE_EFFECTS=%s\n' "$effects"
+        printf 'MAD_THEME_FEATURE_KEYBINDINGS=%s\n' "$keybindings"
         printf 'MAD_THEME_FEATURE_SDDM=%s\n' "$sddm"
         printf 'MAD_THEME_FEATURE_GRUB=%s\n' "$grub"
         printf 'MAD_THEME_FEATURE_HIRES_WALLPAPERS=%s\n' "$hires_wallpapers"
@@ -472,6 +474,7 @@ main() {
     local rgb_default="0"
     local identity_default="0"
     local effects_default="0"
+    local keybindings_default="0"
     local grub_default="0"
     local hires_default="0"
     local animated_default="0"
@@ -483,6 +486,7 @@ main() {
         rgb_default="0"
         identity_default="1"
         effects_default="1"
+        keybindings_default="1"
         grub_default="0"
         hires_default="0"
         animated_default="0"
@@ -493,6 +497,7 @@ main() {
         openrgb_available && rgb_default="1"
         identity_default="1"
         effects_default="1"
+        keybindings_default="1"
         grub_default="0"
         hires_default="1"
         animated_default="1"
@@ -508,6 +513,7 @@ main() {
     rgb="$(ask_feature rgb 'Enable OpenRGB theme control?' "$rgb_default" 'Desktop RGB automation. Laptop-light keeps this off by default for battery and hardware portability.')"
     identity="$(ask_feature identity 'Enable Dark Zen lock/avatar/notification identity?' "$identity_default" 'Applies Dark Zen avatar, lock identity, notification styling, and related HyDE wallbash ownership.')"
     effects="$(ask_feature effects 'Enable tile-close sound hook?' "$effects_default" 'Enables the synthetic tile close effect and sound hook without screenshot capture.')"
+    keybindings="$(ask_feature keybindings 'Install Dark Zen keybindings?' "$keybindings_default" 'Installs a theme-owned Hyprland override for MADPANDA shortcuts. Choose no to preserve your existing keybindings.')"
     if sddm_available; then
         sddm="$(ask_feature sddm 'Use the Dark Zen SDDM login theme? Requires sudo.' 1 'Installs the Dark Zen SDDM wrapper while preserving the Corners-style login layout.')"
     else
@@ -545,7 +551,7 @@ main() {
             printf 'Chrome/Chromium not found; Pandora media bridge skipped. Install Google Chrome or Chromium and rerun this installer to enable it.\n' >&2
         fi
     fi
-    write_features "$sounds" "$rgb" "$identity" "$effects" "$sddm" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
+    write_features "$sounds" "$rgb" "$identity" "$effects" "$keybindings" "$sddm" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-bar-provider" ]]; then
         "$local_bin/mad-bar-provider" set "$bar_provider" >/dev/null 2>&1 || true
     fi

@@ -185,6 +185,9 @@ feature_default() {
         sddm|grub|hires_wallpapers|vertical_wallpapers|animated_wallpapers)
             printf '0\n'
             ;;
+        keybindings)
+            printf '1\n'
+            ;;
         *)
             printf '1\n'
             ;;
@@ -2053,14 +2056,18 @@ apply_theme() {
         "$local_bin/mad-chrome-dark-zen" --install-desktop >"$run_root/logs/chrome-desktop.log" 2>&1 || true
         "$local_bin/mad-chrome-dark-zen" --install-extension >"$run_root/logs/chrome-extension.log" 2>&1 || true
     fi
-    if ! install_theme_keybindings "$source_dir" "$run_root"; then
-        backup_if_exists "$madpanda_hypr_conf" "$run_root"
-        ensure_usability_daily_binds \
-            "$madpanda_hypr_conf" \
-            "$local_bin/mad-keybinds-hint" \
-            "$local_bin/mad-eww-widgets" \
-            "$local_bin/mad-screenshot-full" \
-            "$local_bin/mad-chrome-dark-zen"
+    if feature_enabled "$name" keybindings; then
+        if ! install_theme_keybindings "$source_dir" "$run_root"; then
+            backup_if_exists "$madpanda_hypr_conf" "$run_root"
+            ensure_usability_daily_binds \
+                "$madpanda_hypr_conf" \
+                "$local_bin/mad-keybinds-hint" \
+                "$local_bin/mad-eww-widgets" \
+                "$local_bin/mad-screenshot-full" \
+                "$local_bin/mad-chrome-dark-zen"
+        fi
+    else
+        clear_keybind_overrides "$run_root" >"$run_root/logs/clear-keybindings.log" 2>&1 || true
     fi
     if feature_enabled "$name" sounds || feature_enabled "$name" effects; then
         install_sound_assets "$manifest" "$live_dir" "$source_dir" "$run_root"
