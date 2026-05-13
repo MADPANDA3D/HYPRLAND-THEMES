@@ -13,8 +13,10 @@ coordinator_pid_file="$state_dir/coordinator.pid"
 log_file="$state_dir/session.log"
 control_fifo="$state_dir/gpu-screen-recorder.stdin"
 camera_title="${MAD_RECORD_CAMERA_TITLE:-MADPANDA Creator Camera}"
-camera_size="${MAD_RECORD_CAMERA_SIZE:-320x180}"
+camera_size="${MAD_RECORD_CAMERA_SIZE:-640x360}"
 camera_device="${MAD_RECORD_CAMERA_DEVICE:-/dev/video0}"
+camera_input_conf="$state_dir/camera-input.conf"
+camera_ipc_socket="$state_dir/camera-mpv.sock"
 follow_debounce_ms="${MAD_RECORD_FOLLOW_DEBOUNCE_MS:-650}"
 
 notify() {
@@ -150,6 +152,9 @@ status() {
     if [[ -f "$session_file" ]]; then
         grep -E '^(mode|session_id|session_dir|current_monitor|segment_index|creator)=' "$session_file" || true
     fi
+    if command -v mad-record-camera-control >/dev/null 2>&1; then
+        mad-record-camera-control status 2>/dev/null || true
+    fi
 }
 
 write_session_state() {
@@ -169,6 +174,7 @@ write_session_state() {
 
 start_camera() {
     [[ "$creator_mode" == "1" ]] || return 0
+    local helper_dir camera_control
     if [[ ! -e "$camera_device" ]]; then
         notify "Creator recording" "Camera $camera_device was not found; recording screen only."
         return 0
@@ -181,14 +187,39 @@ start_camera() {
         return 0
     fi
 
+    helper_dir="$(dirname "$script_path")"
+    camera_control="${MAD_RECORD_CAMERA_CONTROL:-$helper_dir/mad-record-camera-control}"
+    [[ -x "$camera_control" ]] || camera_control="${XDG_BIN_HOME:-$HOME/.local/bin}/mad-record-camera-control"
+    [[ -x "$camera_control" ]] || camera_control="mad-record-camera-control"
+
+    mkdir -p "$state_dir"
+    cat > "$camera_input_conf" <<EOF
+MBTN_LEFT_DBL run "$camera_control" toggle-expand
+MOUSE_BTN0_DBL run "$camera_control" toggle-expand
+MBTN_RIGHT run "$camera_control" toggle-blur
+MOUSE_BTN1 run "$camera_control" toggle-blur
+EOF
+    rm -f "$camera_ipc_socket"
+
     mpv "av://v4l2:$camera_device" \
         --title="$camera_title" \
+        --wayland-app-id=madpanda-creator-camera \
         --profile=low-latency \
         --untimed \
         --no-cache \
         --force-window=immediate \
         --no-border \
         --ontop \
+        --focus-on=never \
+        --osc=no \
+        --input-conf="$camera_input_conf" \
+        --input-builtin-bindings=no \
+        --input-default-bindings=no \
+        --input-builtin-dragging=no \
+        --input-media-keys=no \
+        --window-dragging=no \
+        --cursor-autohide=no \
+        --input-ipc-server="$camera_ipc_socket" \
         --geometry="$camera_size" \
         --really-quiet \
         >/dev/null 2>&1 &
@@ -217,14 +248,21 @@ remember_focus() {
 }
 
 restore_focus() {
+    local target_monitor="${1:-}"
+    local focus_monitor_id target_monitor_id
     [[ -n "${last_focus_address:-}" ]] || return 0
+    if [[ -n "$target_monitor" ]]; then
+        focus_monitor_id="$(hyprctl clients -j 2>/dev/null | jq -r --arg address "$last_focus_address" '.[] | select(.address == $address) | .monitor // empty' 2>/dev/null | head -n 1)"
+        target_monitor_id="$(hyprctl monitors -j 2>/dev/null | jq -r --arg monitor "$target_monitor" '.[] | select(.name == $monitor) | .id // empty' 2>/dev/null | head -n 1)"
+        [[ -n "$focus_monitor_id" && -n "$target_monitor_id" && "$focus_monitor_id" == "$target_monitor_id" ]] || return 0
+    fi
     hyprctl dispatch focuswindow "address:$last_focus_address" >/dev/null 2>&1 || true
 }
 
 position_camera() {
     [[ "$creator_mode" == "1" ]] || return 0
     local monitor="$1"
-    local address geometry x y width height cam_w cam_h ws pos_x pos_y
+    local address geometry x y width height cam_w cam_h ws pos_x pos_y camera_expanded
     address="$(camera_address || true)"
     [[ -n "$address" ]] || return 0
     geometry="$(monitor_geometry "$monitor")"
@@ -233,8 +271,21 @@ position_camera() {
     IFS=x read -r cam_w cam_h <<< "$camera_size"
     cam_w="${cam_w:-320}"
     cam_h="${cam_h:-180}"
-    pos_x=$((x + 24))
-    pos_y=$((y + height - cam_h - 32))
+    camera_expanded="0"
+    if [[ -r "$state_dir/camera.env" ]]; then
+        camera_expanded="$(grep -E '^camera_expanded=' "$state_dir/camera.env" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+        camera_expanded="${camera_expanded#\'}"
+        camera_expanded="${camera_expanded%\'}"
+    fi
+    if [[ "$camera_expanded" == "1" ]]; then
+        cam_w="$width"
+        cam_h="$height"
+        pos_x="$x"
+        pos_y="$y"
+    else
+        pos_x=$((x + 24))
+        pos_y=$((y + height - cam_h - 32))
+    fi
     ws="$(monitor_workspace "$monitor")"
 
     hyprctl dispatch setfloating "address:$address" >/dev/null 2>&1 || true
@@ -244,7 +295,7 @@ position_camera() {
         hyprctl dispatch movetoworkspacesilent "$ws,address:$address" >/dev/null 2>&1 || true
         hyprctl dispatch movewindowpixel "exact $pos_x $pos_y,address:$address" >/dev/null 2>&1 || true
     fi
-    restore_focus
+    restore_focus "$monitor"
 }
 
 stop_camera() {
@@ -256,6 +307,7 @@ stop_camera() {
         done
         is_pid_alive "$camera_pid" && kill -KILL "$camera_pid" 2>/dev/null || true
     fi
+    rm -f "$camera_ipc_socket" "$camera_input_conf"
 }
 
 start_segment() {
@@ -388,7 +440,7 @@ cleanup_session() {
     stop_segment
     stop_camera
     finalize_session
-    rm -f "$session_file" "$coordinator_pid_file" "$pid_file" "$control_fifo" "${event_fifo:-}"
+    rm -f "$session_file" "$coordinator_pid_file" "$pid_file" "$control_fifo" "${event_fifo:-}" "$state_dir/camera.env"
 }
 
 switch_monitor_if_needed() {

@@ -321,6 +321,19 @@
       "SUPER+L Dark Zen lock"
     ]
   },
+  "recording": {
+    "helper": "mad-record-active-monitor",
+    "menuHelper": "mad-record-menu",
+    "cameraControlHelper": "mad-record-camera-control",
+    "creatorCamera": {
+      "title": "MADPANDA Creator Camera",
+      "defaultSize": "640x360",
+      "corner": "bottom-left",
+      "doubleClick": "toggle full-monitor intro mode",
+      "rightClick": "report optional blur backend status",
+      "blurBackend": "deferred; recommend webcam-filters + v4l2loopback after approval"
+    }
+  },
   "dictation": {
     "featureFlag": "MAD_THEME_FEATURE_DICTATION",
     "backendEnv": "MAD_THEME_DICTATION_BACKEND",

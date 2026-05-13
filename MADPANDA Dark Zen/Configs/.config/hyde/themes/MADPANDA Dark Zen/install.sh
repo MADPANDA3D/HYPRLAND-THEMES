@@ -367,6 +367,7 @@ install_helpers() {
         mad-record-menu \
         mad-record-stop-all \
         mad-record-active-monitor \
+        mad-record-camera-control \
         mad-keybinds-hint \
         mad-settings-menu \
         mad-wallpaper-theme \

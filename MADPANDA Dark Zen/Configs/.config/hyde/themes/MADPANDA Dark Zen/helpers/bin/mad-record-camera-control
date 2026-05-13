@@ -1,0 +1,197 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+action="${1:-status}"
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/mad-record-active-monitor"
+session_file="$state_dir/session.env"
+camera_state_file="$state_dir/camera.env"
+camera_title="${MAD_RECORD_CAMERA_TITLE:-MADPANDA Creator Camera}"
+camera_size="${MAD_RECORD_CAMERA_SIZE:-640x360}"
+
+notify() {
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send "$@"
+    fi
+}
+
+camera_address() {
+    hyprctl clients -j 2>/dev/null |
+        jq -r --arg title "$camera_title" '.[] | select(.title == $title) | .address' 2>/dev/null |
+        head -n 1
+}
+
+monitor_geometry() {
+    local monitor="$1"
+    hyprctl monitors -j 2>/dev/null |
+        jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | [.x, .y, .width, .height] | @tsv' 2>/dev/null |
+        head -n 1
+}
+
+monitor_workspace() {
+    local monitor="$1"
+    hyprctl monitors -j 2>/dev/null |
+        jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | .activeWorkspace.name // empty' 2>/dev/null |
+        head -n 1
+}
+
+load_camera_state() {
+    camera_expanded="0"
+    camera_blur="0"
+    if [[ -r "$camera_state_file" ]]; then
+        # shellcheck disable=SC1090
+        source "$camera_state_file"
+    fi
+}
+
+save_camera_state() {
+    mkdir -p "$state_dir"
+    {
+        printf 'camera_expanded=%q\n' "$camera_expanded"
+        printf 'camera_blur=%q\n' "$camera_blur"
+    } > "$camera_state_file"
+}
+
+session_monitor() {
+    local current_monitor=""
+    if [[ -r "$session_file" ]]; then
+        current_monitor="$(grep -E '^current_monitor=' "$session_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+        current_monitor="${current_monitor#\'}"
+        current_monitor="${current_monitor%\'}"
+    fi
+    if [[ -z "$current_monitor" ]]; then
+        current_monitor="$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)"
+    fi
+    printf '%s\n' "$current_monitor"
+}
+
+position_corner() {
+    local address="$1"
+    local monitor="$2"
+    local geometry x y width height cam_w cam_h pos_x pos_y ws
+    geometry="$(monitor_geometry "$monitor")"
+    [[ -n "$geometry" ]] || return 1
+    read -r x y width height <<< "$geometry"
+    IFS=x read -r cam_w cam_h <<< "$camera_size"
+    cam_w="${cam_w:-640}"
+    cam_h="${cam_h:-360}"
+    pos_x=$((x + 24))
+    pos_y=$((y + height - cam_h - 32))
+    ws="$(monitor_workspace "$monitor")"
+
+    hyprctl dispatch setfloating "address:$address" >/dev/null 2>&1 || true
+    [[ -n "$ws" ]] && hyprctl dispatch movetoworkspacesilent "$ws,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch resizewindowpixel "exact $cam_w $cam_h,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch movewindowpixel "exact $pos_x $pos_y,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch alterzorder top "address:$address" >/dev/null 2>&1 || true
+}
+
+position_fullscreen() {
+    local address="$1"
+    local monitor="$2"
+    local geometry x y width height ws
+    geometry="$(monitor_geometry "$monitor")"
+    [[ -n "$geometry" ]] || return 1
+    read -r x y width height <<< "$geometry"
+    ws="$(monitor_workspace "$monitor")"
+
+    hyprctl dispatch setfloating "address:$address" >/dev/null 2>&1 || true
+    [[ -n "$ws" ]] && hyprctl dispatch movetoworkspacesilent "$ws,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch resizewindowpixel "exact $width $height,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch movewindowpixel "exact $x $y,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch alterzorder top "address:$address" >/dev/null 2>&1 || true
+}
+
+blur_backend_status() {
+    local webcam_filters="missing" v4l2loopback="missing" gstreamer="missing"
+    command -v webcam-filters >/dev/null 2>&1 && webcam_filters="present"
+    if lsmod 2>/dev/null | grep -q '^v4l2loopback'; then
+        v4l2loopback="loaded"
+    elif command -v v4l2loopback-ctl >/dev/null 2>&1 || pacman -Qq v4l2loopback-dkms >/dev/null 2>&1; then
+        v4l2loopback="available-not-loaded"
+    fi
+    command -v gst-launch-1.0 >/dev/null 2>&1 && gstreamer="present"
+
+    printf 'webcamFilters=%s\n' "$webcam_filters"
+    printf 'v4l2loopback=%s\n' "$v4l2loopback"
+    printf 'gstreamer=%s\n' "$gstreamer"
+    printf 'recommendedBackend=webcam-filters + v4l2loopback\n'
+    printf 'installPolicy=deferred; no blur packages are installed by this helper\n'
+}
+
+toggle_expand() {
+    local address monitor
+    address="$(camera_address)"
+    [[ -n "$address" ]] || {
+        notify "Creator camera" "Camera window is not active."
+        exit 1
+    }
+    monitor="$(session_monitor)"
+    [[ -n "$monitor" ]] || {
+        notify "Creator camera" "Could not determine recording monitor."
+        exit 1
+    }
+
+    load_camera_state
+    if [[ "$camera_expanded" == "1" ]]; then
+        camera_expanded="0"
+        position_corner "$address" "$monitor"
+    else
+        camera_expanded="1"
+        position_fullscreen "$address" "$monitor"
+    fi
+    save_camera_state
+}
+
+toggle_blur() {
+    load_camera_state
+    camera_blur=$([[ "$camera_blur" == "1" ]] && echo "0" || echo "1")
+    save_camera_state
+
+    if command -v webcam-filters >/dev/null 2>&1 && lsmod 2>/dev/null | grep -q '^v4l2loopback'; then
+        notify "Creator camera blur" "Backend detected, but live blur activation is deferred to the approved blur slice."
+    else
+        notify "Creator camera blur" "Background blur backend is not installed. Recommended future test: webcam-filters + v4l2loopback."
+    fi
+}
+
+status() {
+    local address monitor
+    address="$(camera_address)"
+    monitor="$(session_monitor)"
+    load_camera_state
+    printf 'cameraTitle=%s\n' "$camera_title"
+    printf 'cameraWindow=%s\n' "$([[ -n "$address" ]] && echo present || echo missing)"
+    printf 'cameraAddress=%s\n' "$address"
+    printf 'recordingMonitor=%s\n' "$monitor"
+    printf 'cornerSize=%s\n' "$camera_size"
+    printf 'expanded=%s\n' "$camera_expanded"
+    printf 'blurRequested=%s\n' "$camera_blur"
+    blur_backend_status
+}
+
+case "$action" in
+    toggle-expand|expand)
+        toggle_expand
+        ;;
+    toggle-blur|blur)
+        toggle_blur
+        ;;
+    status|--status)
+        status
+        ;;
+    blur-status)
+        blur_backend_status
+        ;;
+    -h|--help|help)
+        cat <<'EOF'
+Usage: mad-record-camera-control [status|toggle-expand|toggle-blur|blur-status]
+
+Controls the Dark Zen creator-mode webcam overlay. Background blur is reported
+but not installed or activated by this helper.
+EOF
+        ;;
+    *)
+        printf 'Unknown camera control action: %s\n' "$action" >&2
+        exit 2
+        ;;
+esac
