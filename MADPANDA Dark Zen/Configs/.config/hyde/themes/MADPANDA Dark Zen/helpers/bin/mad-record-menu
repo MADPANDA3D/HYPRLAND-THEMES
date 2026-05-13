@@ -14,7 +14,7 @@ case "${1:-}" in
         ;;
 esac
 
-choices=$'Active monitor toggle\nFocused window toggle\nRegion selection toggle\nPortal picker toggle\nEmergency stop all'
+choices=$'Smart follow toggle\nFixed active monitor toggle\nCreator mode toggle\nFocused window toggle\nRegion selection toggle\nPortal picker toggle\nStop current recording'
 
 if ! command -v rofi >/dev/null 2>&1; then
     exec "$helper" active-monitor
@@ -22,10 +22,12 @@ fi
 
 selection="$(printf '%s\n' "$choices" | rofi -dmenu -i -p 'Recording')"
 case "$selection" in
-    "Active monitor toggle") exec "$helper" active-monitor ;;
+    "Smart follow toggle") exec "$helper" smart ;;
+    "Fixed active monitor toggle") exec "$helper" fixed ;;
+    "Creator mode toggle") exec "$helper" creator ;;
     "Focused window toggle") exec "$helper" focused ;;
     "Region selection toggle") exec "$helper" region ;;
     "Portal picker toggle") exec "$helper" portal ;;
-    "Emergency stop all") exec "$helper" --stop-all ;;
+    "Stop current recording") exec "$helper" stop ;;
     *) exit 0 ;;
 esac

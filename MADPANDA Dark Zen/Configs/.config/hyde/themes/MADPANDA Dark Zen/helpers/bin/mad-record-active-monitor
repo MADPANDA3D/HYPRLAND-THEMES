@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-mode="${1:-active-monitor}"
+mode="${1:-smart}"
+shift || true
+
+script_path="$(readlink -f "${BASH_SOURCE[0]:-$0}")"
 out_dir="${MAD_RECORD_OUTPUT_DIR:-$HOME/Videos/Screen Recordings}"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/mad-record-active-monitor"
+session_file="$state_dir/session.env"
 pid_file="$state_dir/gpu-screen-recorder.pid"
-log_file="$state_dir/gpu-screen-recorder.log"
-stdin_fifo="$state_dir/gpu-screen-recorder.stdin"
+coordinator_pid_file="$state_dir/coordinator.pid"
+log_file="$state_dir/session.log"
+control_fifo="$state_dir/gpu-screen-recorder.stdin"
+camera_title="${MAD_RECORD_CAMERA_TITLE:-MADPANDA Creator Camera}"
+camera_size="${MAD_RECORD_CAMERA_SIZE:-320x180}"
+camera_device="${MAD_RECORD_CAMERA_DEVICE:-/dev/video0}"
+follow_debounce_ms="${MAD_RECORD_FOLLOW_DEBOUNCE_MS:-650}"
 
 notify() {
     if command -v notify-send >/dev/null 2>&1; then
@@ -14,155 +23,543 @@ notify() {
     fi
 }
 
-is_gsr_pid() {
-    local pid="$1"
+die() {
+    notify "Screen recording failed" "$*"
+    printf 'Screen recording failed: %s\n' "$*" >&2
+    exit 1
+}
 
+is_pid_alive() {
+    local pid="${1:-}"
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+is_gsr_pid() {
+    local pid="${1:-}"
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
     [[ -r "/proc/$pid/cmdline" ]] || return 1
-
     tr '\0' ' ' < "/proc/$pid/cmdline" | grep -q 'gpu-screen-recorder'
 }
 
-stop_recording() {
-    local pid="$1"
-
-    notify "Screen recording" "Stopping and saving recording..."
-    kill -INT "$pid" 2>/dev/null || true
-
-    for _ in {1..80}; do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            break
-        fi
-        sleep 0.1
-    done
-
-    rm -f "$pid_file" "$stdin_fifo"
+ms_sleep() {
+    local ms="${1:-0}"
+    awk -v ms="$ms" 'BEGIN { printf "%.3f\n", ms / 1000 }' | xargs sleep
 }
 
-stop_all_recordings() {
-    local pid pids=()
+safe_label() {
+    printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'
+}
 
-    if [[ -f "$pid_file" ]]; then
-        pid="$(<"$pid_file")"
-        if is_gsr_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
-            pids+=("$pid")
-        fi
-    fi
-
-    while IFS= read -r pid; do
-        [[ -n "$pid" ]] || continue
-        [[ " ${pids[*]} " == *" $pid "* ]] || pids+=("$pid")
-    done < <(pgrep -u "$UID" -f '^gpu-screen-recorder( |$)' || true)
-
-    if ((${#pids[@]} == 0)); then
-        rm -f "$pid_file" "$stdin_fifo"
-        notify "Screen recording" "No active recorder found."
+active_monitor() {
+    local monitor active_title
+    active_title="$(hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty' 2>/dev/null || true)"
+    if [[ "$active_title" == "$camera_title" && -n "${current_monitor:-}" ]]; then
+        printf '%s\n' "$current_monitor"
         return 0
     fi
 
-    notify "Screen recording" "Emergency stop: saving active recording."
-    for pid in "${pids[@]}"; do
-        kill -INT "$pid" 2>/dev/null || true
-    done
-    for _ in {1..80}; do
-        local alive="0"
-        for pid in "${pids[@]}"; do
-            if kill -0 "$pid" 2>/dev/null; then
-                alive="1"
-                break
-            fi
-        done
-        [[ "$alive" == "0" ]] && break
-        sleep 0.1
-    done
-    rm -f "$pid_file" "$stdin_fifo"
+    monitor="$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.monitor // empty' 2>/dev/null || true)"
+    if [[ -z "$monitor" ]]; then
+        monitor="$(hyprctl monitors -j 2>/dev/null | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null | head -n 1 || true)"
+    fi
+    printf '%s\n' "$monitor"
 }
 
-mkdir -p "$out_dir" "$state_dir"
+monitor_workspace() {
+    local monitor="$1"
+    hyprctl monitors -j 2>/dev/null |
+        jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | .activeWorkspace.name // empty' 2>/dev/null |
+        head -n 1
+}
 
-case "$mode" in
-    --stop-all|stop|stop-all|emergency-stop)
-        stop_all_recordings
-        exit 0
-        ;;
-    active-monitor|monitor|focused|active-window|portal|region)
-        ;;
-    -h|--help|help)
-        printf 'Usage: mad-record-active-monitor [active-monitor|focused|portal|region|--stop-all]\n'
-        exit 0
-        ;;
-    *)
-        notify "Screen recording failed" "Unknown recording mode: $mode"
-        printf 'Unknown recording mode: %s\n' "$mode" >&2
-        exit 2
-        ;;
-esac
+monitor_geometry() {
+    local monitor="$1"
+    hyprctl monitors -j 2>/dev/null |
+        jq -r --arg monitor "$monitor" '.[] | select(.name == $monitor) | [.x, .y, .width, .height] | @tsv' 2>/dev/null |
+        head -n 1
+}
 
-if [[ -f "$pid_file" ]]; then
-    pid="$(<"$pid_file")"
-    if is_gsr_pid "$pid" && kill -0 "$pid" 2>/dev/null; then
-        stop_recording "$pid"
+session_pid() {
+    local pid=""
+    if [[ -f "$coordinator_pid_file" ]]; then
+        pid="$(<"$coordinator_pid_file")"
+    elif [[ -f "$session_file" ]]; then
+        pid="$(grep -E '^coordinator_pid=' "$session_file" 2>/dev/null | tail -n 1 | cut -d= -f2- || true)"
+    fi
+    printf '%s\n' "$pid"
+}
+
+stop_pid_gracefully() {
+    local pid="$1"
+    local label="${2:-process}"
+    local signal="${3:-INT}"
+
+    is_pid_alive "$pid" || return 0
+    kill "-$signal" "$pid" 2>/dev/null || true
+    for _ in {1..100}; do
+        is_pid_alive "$pid" || return 0
+        sleep 0.1
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+    for _ in {1..30}; do
+        is_pid_alive "$pid" || return 0
+        sleep 0.1
+    done
+    printf 'Warning: %s pid %s did not exit cleanly.\n' "$label" "$pid" >&2
+}
+
+stop_active_session() {
+    local coordinator_pid gsr_pid
+    coordinator_pid="$(session_pid)"
+    gsr_pid=""
+    [[ -f "$pid_file" ]] && gsr_pid="$(<"$pid_file")"
+
+    if is_pid_alive "$coordinator_pid"; then
+        notify "Screen recording" "Stopping and saving recording..."
+        kill -TERM "$coordinator_pid" 2>/dev/null || true
+        for _ in {1..140}; do
+            is_pid_alive "$coordinator_pid" || break
+            sleep 0.1
+        done
+        if is_pid_alive "$coordinator_pid"; then
+            kill -KILL "$coordinator_pid" 2>/dev/null || true
+        fi
         exit 0
     fi
-    rm -f "$pid_file" "$stdin_fifo"
-fi
 
-record_args=()
-label="$mode"
+    if is_gsr_pid "$gsr_pid"; then
+        notify "Screen recording" "Stopping and saving recording..."
+        stop_pid_gracefully "$gsr_pid" "gpu-screen-recorder" INT
+    else
+        notify "Screen recording" "No active recorder found."
+    fi
+
+    rm -f "$session_file" "$pid_file" "$coordinator_pid_file" "$control_fifo"
+}
+
+status() {
+    local coordinator_pid gsr_pid
+    coordinator_pid="$(session_pid)"
+    gsr_pid=""
+    [[ -f "$pid_file" ]] && gsr_pid="$(<"$pid_file")"
+    printf 'stateDir=%s\n' "$state_dir"
+    printf 'active=%s\n' "$(is_pid_alive "$coordinator_pid" && echo true || echo false)"
+    printf 'coordinatorPid=%s\n' "$coordinator_pid"
+    printf 'recorderPid=%s\n' "$gsr_pid"
+    if [[ -f "$session_file" ]]; then
+        grep -E '^(mode|session_id|session_dir|current_monitor|segment_index|creator)=' "$session_file" || true
+    fi
+}
+
+write_session_state() {
+    {
+        printf 'mode=%q\n' "$session_mode"
+        printf 'creator=%q\n' "$creator_mode"
+        printf 'session_id=%q\n' "$session_id"
+        printf 'session_dir=%q\n' "$session_dir"
+        printf 'coordinator_pid=%q\n' "$$"
+        printf 'current_monitor=%q\n' "$current_monitor"
+        printf 'segment_index=%q\n' "$segment_index"
+        printf 'current_pid=%q\n' "$current_pid"
+        printf 'camera_pid=%q\n' "$camera_pid"
+    } > "$session_file"
+    printf '%s\n' "$$" > "$coordinator_pid_file"
+}
+
+start_camera() {
+    [[ "$creator_mode" == "1" ]] || return 0
+    if [[ ! -e "$camera_device" ]]; then
+        notify "Creator recording" "Camera $camera_device was not found; recording screen only."
+        return 0
+    fi
+    command -v mpv >/dev/null 2>&1 || {
+        notify "Creator recording" "mpv is required for the webcam overlay; recording screen only."
+        return 0
+    }
+    if is_pid_alive "$camera_pid"; then
+        return 0
+    fi
+
+    mpv "av://v4l2:$camera_device" \
+        --title="$camera_title" \
+        --profile=low-latency \
+        --untimed \
+        --no-cache \
+        --force-window=immediate \
+        --no-border \
+        --ontop \
+        --geometry="$camera_size" \
+        --really-quiet \
+        >/dev/null 2>&1 &
+    camera_pid="$!"
+
+    for _ in {1..30}; do
+        camera_address >/dev/null && break
+        sleep 0.1
+    done
+    position_camera "$current_monitor"
+}
+
+camera_address() {
+    hyprctl clients -j 2>/dev/null |
+        jq -r --arg title "$camera_title" '.[] | select(.title == $title) | .address' 2>/dev/null |
+        head -n 1
+}
+
+remember_focus() {
+    local title address
+    title="$(hyprctl activewindow -j 2>/dev/null | jq -r '.title // empty' 2>/dev/null || true)"
+    address="$(hyprctl activewindow -j 2>/dev/null | jq -r '.address // empty' 2>/dev/null || true)"
+    if [[ -n "$address" && "$address" != "0x0" && "$title" != "$camera_title" ]]; then
+        last_focus_address="$address"
+    fi
+}
+
+restore_focus() {
+    [[ -n "${last_focus_address:-}" ]] || return 0
+    hyprctl dispatch focuswindow "address:$last_focus_address" >/dev/null 2>&1 || true
+}
+
+position_camera() {
+    [[ "$creator_mode" == "1" ]] || return 0
+    local monitor="$1"
+    local address geometry x y width height cam_w cam_h ws pos_x pos_y
+    address="$(camera_address || true)"
+    [[ -n "$address" ]] || return 0
+    geometry="$(monitor_geometry "$monitor")"
+    [[ -n "$geometry" ]] || return 0
+    read -r x y width height <<< "$geometry"
+    IFS=x read -r cam_w cam_h <<< "$camera_size"
+    cam_w="${cam_w:-320}"
+    cam_h="${cam_h:-180}"
+    pos_x=$((x + 24))
+    pos_y=$((y + height - cam_h - 32))
+    ws="$(monitor_workspace "$monitor")"
+
+    hyprctl dispatch setfloating "address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch resizewindowpixel "exact $cam_w $cam_h,address:$address" >/dev/null 2>&1 || true
+    hyprctl dispatch movewindowpixel "exact $pos_x $pos_y,address:$address" >/dev/null 2>&1 || true
+    if [[ -n "$ws" ]]; then
+        hyprctl dispatch movetoworkspacesilent "$ws,address:$address" >/dev/null 2>&1 || true
+        hyprctl dispatch movewindowpixel "exact $pos_x $pos_y,address:$address" >/dev/null 2>&1 || true
+    fi
+    restore_focus
+}
+
+stop_camera() {
+    if is_pid_alive "$camera_pid"; then
+        kill -TERM "$camera_pid" 2>/dev/null || true
+        for _ in {1..20}; do
+            is_pid_alive "$camera_pid" || break
+            sleep 0.1
+        done
+        is_pid_alive "$camera_pid" && kill -KILL "$camera_pid" 2>/dev/null || true
+    fi
+}
+
+start_segment() {
+    local target="$1"
+    local label="$2"
+    local extra_region="${3:-}"
+    local safe file fifo
+    safe="$(safe_label "$label")"
+    segment_index=$((segment_index + 1))
+    printf -v file '%s/segment-%03d-%s.mp4' "$session_dir" "$segment_index" "$safe"
+    fifo="$state_dir/gpu-screen-recorder-$segment_index.stdin"
+
+    rm -f "$fifo" "$control_fifo"
+    mkfifo "$fifo"
+    ln -s "$fifo" "$control_fifo" 2>/dev/null || true
+    exec {record_fd}<>"$fifo"
+
+    record_args=()
+    if [[ -n "$extra_region" ]]; then
+        record_args=(-region "$extra_region")
+    fi
+
+    gpu-screen-recorder \
+        -w "$target" \
+        "${record_args[@]}" \
+        -f 60 \
+        -fm cfr \
+        -k h264 \
+        -ac aac \
+        -a "default_output|default_input" \
+        -cursor yes \
+        -q very_high \
+        -o "$file" \
+        <&"$record_fd" >"$session_dir/segment-$(printf '%03d' "$segment_index").log" 2>&1 &
+
+    current_pid="$!"
+    current_fifo="$fifo"
+    current_fd="$record_fd"
+    printf '%s\n' "$current_pid" > "$pid_file"
+    printf '%03d\t%s\t%s\t%s\n' "$segment_index" "$target" "$label" "$file" >> "$session_dir/segments.tsv"
+    write_session_state
+    notify "Screen recording" "Recording $label"
+}
+
+stop_segment() {
+    if is_gsr_pid "$current_pid"; then
+        kill -INT "$current_pid" 2>/dev/null || true
+        for _ in {1..120}; do
+            is_pid_alive "$current_pid" || break
+            sleep 0.1
+        done
+        is_pid_alive "$current_pid" && kill -TERM "$current_pid" 2>/dev/null || true
+    fi
+    if [[ -n "${current_fd:-}" ]]; then
+        eval "exec ${current_fd}>&-" 2>/dev/null || true
+    fi
+    rm -f "${current_fifo:-}" "$pid_file" "$control_fifo"
+    current_pid=""
+    current_fifo=""
+    current_fd=""
+    write_session_state
+}
+
+ffconcat_quote() {
+    local value="$1"
+    value="${value//\'/\'\\\'\'}"
+    printf "'%s'" "$value"
+}
+
+finalize_session() {
+    local segments=() dims=() file dim concat_file final_file quoted
+    [[ -f "$session_dir/segments.tsv" ]] || return 0
+
+    while IFS=$'\t' read -r _idx _target _label file; do
+        [[ -s "$file" ]] || continue
+        segments+=("$file")
+    done < "$session_dir/segments.tsv"
+
+    if ((${#segments[@]} == 0)); then
+        notify "Screen recording" "No recording segments were saved."
+        return 0
+    fi
+
+    if ((${#segments[@]} == 1)); then
+        notify "Screen recording saved" "${segments[0]}"
+        return 0
+    fi
+
+    if ! command -v ffprobe >/dev/null 2>&1 || ! command -v ffmpeg >/dev/null 2>&1; then
+        notify "Screen recording saved" "Multiple segments saved in $session_dir"
+        return 0
+    fi
+
+    for file in "${segments[@]}"; do
+        dim="$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0:s=x "$file" 2>/dev/null || true)"
+        [[ -n "$dim" ]] || dim="unknown"
+        dims+=("$dim")
+    done
+
+    for dim in "${dims[@]}"; do
+        if [[ "$dim" != "${dims[0]}" ]]; then
+            notify "Screen recording saved" "Mixed monitor shapes kept as segments in $session_dir"
+            return 0
+        fi
+    done
+
+    concat_file="$session_dir/segments.ffconcat"
+    final_file="$out_dir/recording-$session_id-$session_mode.mp4"
+    {
+        printf 'ffconcat version 1.0\n'
+        for file in "${segments[@]}"; do
+            quoted="$(ffconcat_quote "$file")"
+            printf 'file %s\n' "$quoted"
+        done
+    } > "$concat_file"
+
+    if ffmpeg -hide_banner -loglevel error -f concat -safe 0 -i "$concat_file" -c copy "$final_file" < /dev/null; then
+        notify "Screen recording saved" "$final_file"
+    else
+        rm -f "$final_file"
+        notify "Screen recording saved" "Merge failed; segments kept in $session_dir"
+    fi
+}
+
+cleanup_session() {
+    set +e
+    if is_pid_alive "${event_pid:-}"; then
+        kill -TERM "$event_pid" 2>/dev/null || true
+    fi
+    stop_segment
+    stop_camera
+    finalize_session
+    rm -f "$session_file" "$coordinator_pid_file" "$pid_file" "$control_fifo" "${event_fifo:-}"
+}
+
+switch_monitor_if_needed() {
+    [[ "$follow_mode" == "1" ]] || return 0
+    local next_monitor
+    remember_focus
+    next_monitor="$(active_monitor)"
+    [[ -n "$next_monitor" ]] || return 0
+    [[ "$next_monitor" == "$current_monitor" ]] && {
+        position_camera "$current_monitor"
+        return 0
+    }
+
+    current_monitor="$next_monitor"
+    stop_segment
+    start_segment "$current_monitor" "$current_monitor"
+    position_camera "$current_monitor"
+}
+
+event_socket_path() {
+    [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] || return 1
+    printf '%s/hypr/%s/.socket2.sock\n' "${XDG_RUNTIME_DIR:-/run/user/$UID}" "$HYPRLAND_INSTANCE_SIGNATURE"
+}
+
+watch_follow_events() {
+    local socket event event_fd
+    socket="$(event_socket_path || true)"
+    if [[ -n "$socket" && -S "$socket" && -x "$(command -v socat || true)" ]]; then
+        event_fifo="$state_dir/hypr-events.$$"
+        rm -f "$event_fifo"
+        mkfifo "$event_fifo"
+        exec {event_fd}<>"$event_fifo"
+        socat -U - "UNIX-CONNECT:$socket" >"$event_fifo" 2>/dev/null &
+        event_pid="$!"
+        while true; do
+            if IFS= read -r -t 1 event <&"$event_fd"; then
+                case "$event" in
+                    focusedmon*|workspace*|activewindow*|movewindow*|openwindow*|closewindow*)
+                        ms_sleep "$follow_debounce_ms"
+                        switch_monitor_if_needed
+                        ;;
+                esac
+            else
+                switch_monitor_if_needed
+            fi
+        done
+    else
+        while true; do
+            sleep 1
+            switch_monitor_if_needed
+        done
+    fi
+}
+
+run_session() {
+    session_mode="$1"
+    local region_geometry="${2:-}"
+
+    follow_mode="0"
+    creator_mode="0"
+    current_pid=""
+    current_fifo=""
+    current_fd=""
+    camera_pid=""
+    last_focus_address=""
+    segment_index=0
+    current_monitor=""
+
+    case "$session_mode" in
+        smart|follow|smart-follow)
+            follow_mode="1"
+            ;;
+        creator|creator-follow)
+            follow_mode="1"
+            creator_mode="1"
+            ;;
+        fixed|active-monitor|monitor)
+            ;;
+        focused|active-window|portal|region)
+            ;;
+        *)
+            die "Unknown recording mode: $session_mode"
+            ;;
+    esac
+
+    session_id="$(date +%Y%m%d-%H%M%S)"
+    session_dir="$out_dir/$session_id-$session_mode"
+    mkdir -p "$session_dir"
+    : > "$session_dir/segments.tsv"
+
+    trap cleanup_session EXIT
+    trap 'exit 0' TERM INT
+
+    case "$session_mode" in
+        smart|follow|smart-follow|creator|creator-follow|fixed|active-monitor|monitor)
+            current_monitor="$(active_monitor)"
+            [[ -n "$current_monitor" ]] || die "Could not determine the active monitor."
+            remember_focus
+            start_camera
+            start_segment "$current_monitor" "$current_monitor"
+            position_camera "$current_monitor"
+            ;;
+        focused|active-window)
+            start_segment "focused" "focused-window"
+            ;;
+        portal)
+            start_segment "portal" "portal"
+            ;;
+        region)
+            [[ -n "$region_geometry" ]] || die "No region was selected."
+            start_segment "region" "region" "$region_geometry"
+            ;;
+    esac
+
+    if [[ "$follow_mode" == "1" ]]; then
+        watch_follow_events
+    else
+        while is_pid_alive "$current_pid"; do
+            sleep 0.5
+        done
+    fi
+}
+
+start_detached_session() {
+    local start_mode="$1"
+    local region_geometry="${2:-}"
+    mkdir -p "$out_dir" "$state_dir"
+    nohup "$script_path" --run-session "$start_mode" "$region_geometry" >>"$log_file" 2>&1 &
+}
+
 case "$mode" in
-    active-monitor|monitor)
-        monitor="$(hyprctl activeworkspace -j | jq -r '.monitor // empty')"
-        if [[ -z "$monitor" ]]; then
-            monitor="$(hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name' | head -n 1)"
+    --run-session)
+        mkdir -p "$out_dir" "$state_dir"
+        run_session "${1:-smart}" "${2:-}"
+        ;;
+    --status|status)
+        status
+        ;;
+    --stop-all|stop|stop-all|emergency-stop)
+        stop_active_session
+        ;;
+    smart|follow|smart-follow|creator|creator-follow|fixed|active-monitor|monitor|focused|active-window|portal|region)
+        mkdir -p "$out_dir" "$state_dir"
+        if [[ -f "$session_file" || -f "$coordinator_pid_file" || -f "$pid_file" ]]; then
+            stop_active_session
+            exit 0
         fi
+        region_geometry=""
+        if [[ "$mode" == "region" ]]; then
+            command -v slurp >/dev/null 2>&1 || die "slurp is required for region recording."
+            region_geometry="$(slurp)"
+            [[ -n "$region_geometry" ]] || exit 0
+        fi
+        start_detached_session "$mode" "$region_geometry"
+        ;;
+    -h|--help|help)
+        cat <<'EOF'
+Usage: mad-record-active-monitor [mode]
 
-        if [[ -z "$monitor" ]]; then
-            notify "Screen recording failed" "Could not determine the active monitor."
-            exit 1
-        fi
-        target="$monitor"
-        label="$monitor"
+Modes:
+  smart             Smart-follow active monitor recording. Default.
+  fixed             Fixed active-monitor recording.
+  creator           Smart-follow recording with webcam picture-in-picture.
+  focused           Focused-window recording.
+  region            Region recording with slurp.
+  portal            Portal picker recording.
+  stop              Stop the active recording session.
+  status            Print active recording session state.
+EOF
         ;;
-    focused|active-window)
-        target="focused"
-        label="focused-window"
-        ;;
-    portal)
-        target="portal"
-        label="portal"
-        ;;
-    region)
-        if ! command -v slurp >/dev/null 2>&1; then
-            notify "Screen recording failed" "slurp is required for region recording."
-            exit 1
-        fi
-        geometry="$(slurp)"
-        [[ -n "$geometry" ]] || exit 0
-        target="region"
-        label="region"
-        record_args=(-region "$geometry")
+    *)
+        die "Unknown recording mode: $mode"
         ;;
 esac
-
-safe_label="$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '_')"
-file="$out_dir/recording-$(date +%Y%m%d-%H%M%S)-$safe_label.mp4"
-
-rm -f "$stdin_fifo"
-mkfifo "$stdin_fifo"
-exec 3<>"$stdin_fifo"
-
-printf '%s\n' "$$" > "$pid_file"
-notify "Screen recording started" "$label -> $file"
-
-exec gpu-screen-recorder \
-    -w "$target" \
-    "${record_args[@]}" \
-    -f 60 \
-    -fm cfr \
-    -k h264 \
-    -ac aac \
-    -a "default_output|default_input" \
-    -cursor yes \
-    -q very_high \
-    -o "$file" \
-    <&3 >"$log_file" 2>&1

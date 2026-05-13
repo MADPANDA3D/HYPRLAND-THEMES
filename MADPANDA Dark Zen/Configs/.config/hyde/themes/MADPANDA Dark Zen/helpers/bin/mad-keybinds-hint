@@ -14,9 +14,10 @@ custom_rows="$(
 SUPER + Q            > Terminal ::: :::
 SUPER + W            > Dictation start/stop ::: :::
 SUPER + E            > Google Chrome ::: :::
-SUPER + R            > Screen recording start/stop ::: :::
+SUPER + R            > Smart-follow recording ::: :::
+SUPER CTRL + R       > Fixed monitor recording ::: :::
+SUPER SHIFT + R      > Creator recording with camera ::: :::
 SUPER ALT + R        > Screen recording modes ::: :::
-SUPER SHIFT ALT + R  > Emergency stop recording ::: :::
 SUPER + A            > Hyprexpo workspace overview ::: :::
 SUPER + S            > Active tile screenshot ::: :::
 SUPER SHIFT + S      > Region screenshot ::: :::
