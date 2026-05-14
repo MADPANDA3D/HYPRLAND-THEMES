@@ -45,16 +45,16 @@ group {
 }
 
 decoration {
-    rounding = 0
+    rounding = 10
     active_opacity = 0.95
     inactive_opacity = 0.90
 
     shadow {
-    enabled = true
+    enabled = false
     ignore_window = true
     render_power = 2
-    color = 0x80ffffff
-    range = 14
+    color = 0x00000000
+    range = 6
     offset = 0 0
     }
 

@@ -31,6 +31,7 @@ xray_previous=""
 dry_run=0
 cleanup_only=0
 single_lock_fd_open=0
+lock_acquired=0
 
 usage() {
     cat <<'EOF'
@@ -210,6 +211,10 @@ restore_session() {
     if [[ "$xray_changed" == "1" && -n "$xray_previous" ]]; then
         set_xray "$xray_previous" || true
     fi
+    if [[ "$lock_acquired" == "1" ]] && cmd_exists "$sound_bin"; then
+        log "sound=unlock"
+        run_without_single_lock_fd "$sound_bin" unlock >>"$log_file" 2>&1 || true
+    fi
     log "restore_session=done"
 }
 
@@ -318,6 +323,7 @@ if [[ "$lock_mode" != "staged" ]]; then
         printf 'command=wait-for-lock-acquired timeout_ms=%s\n' "$lock_acquire_timeout_ms"
         printf 'soundAfterLock=%s lock\n' "$sound_bin"
         printf 'command=wait hyprlock\n'
+        printf 'unlockSound=%s unlock\n' "$sound_bin"
         exit 0
     fi
 
@@ -334,6 +340,7 @@ if [[ "$lock_mode" != "staged" ]]; then
         exit 1
     fi
     log "lock_acquire=done pid=$lock_pid"
+    lock_acquired=1
 
     if cmd_exists "$sound_bin"; then
         log "sound=lock"
@@ -343,6 +350,10 @@ if [[ "$lock_mode" != "staged" ]]; then
     wait "$lock_pid"
     lock_status="$?"
     log "lock_wait=done status=$lock_status"
+    if [[ "$lock_acquired" == "1" ]] && cmd_exists "$sound_bin"; then
+        log "sound=unlock"
+        run_without_single_lock_fd "$sound_bin" unlock >>"$log_file" 2>&1 || true
+    fi
     exit "$lock_status"
 fi
 
@@ -399,6 +410,7 @@ if [[ "$dry_run" == "1" ]]; then
     printf ' &\n'
     printf 'command=wait-for-lock-acquired timeout_ms=%s\n' "$lock_acquire_timeout_ms"
     printf 'command=wait hyprlock\n'
+    printf 'unlockSound=%s unlock\n' "$sound_bin"
     printf 'restore=parallel surfaces wallpapers tiles xray\n'
     exit 0
 fi
@@ -488,6 +500,7 @@ if ! wait_for_lock_acquired "$lock_pid"; then
     exit 1
 fi
 log "lock_acquire=done pid=$lock_pid"
+lock_acquired=1
 
 wait "$lock_pid"
 lock_status="$?"

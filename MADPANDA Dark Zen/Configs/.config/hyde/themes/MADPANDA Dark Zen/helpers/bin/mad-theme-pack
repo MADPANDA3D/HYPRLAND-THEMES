@@ -1321,7 +1321,7 @@ visual identity. The theme is open source and non-monetized.
 ## Install
 
 \`\`\`bash
-hydectl theme import --name "$name" --url "\$(pwd)/Configs"
+hydectl theme import --name "$name" --url "\$(pwd)"
 \`\`\`
 
 Or run the guided installer from the packaged theme directory:
@@ -1335,6 +1335,9 @@ The HyDE-compatible theme files live under:
 \`\`\`text
 $theme_dir_rel
 \`\`\`
+
+Fresh installs also use the package-root \`Source/\` directory for GTK, icon,
+and cursor archives.
 
 MADPANDA helper features such as RGB, sounds, lock identity, notifications,
 terminal stickers, and tile-close effects are declared by \`theme.json\`.
@@ -1445,13 +1448,20 @@ build_hyde_package() {
 
     [[ "$dry_run" == "1" ]] && return 0
 
-    rm -rf "$package_dir/Config"
+    rm -rf "$package_dir/Configs"
     mkdir -p "$package_theme_dir"
     rsync -a --delete \
         --exclude 'wall.*' \
+        --exclude 'Source' \
         --exclude 'wallpapers.previous-*' \
         --exclude 'wallpapers.rejected-*' \
         "$dev_dir/" "$package_theme_dir/"
+    if [[ -d "$dev_dir/Source" ]]; then
+        mkdir -p "$package_dir/Source"
+        rsync -a --delete "$dev_dir/Source/" "$package_dir/Source/"
+    else
+        rm -rf "$package_dir/Source"
+    fi
     stage_helper_payload "$package_theme_dir"
     write_package_readme "$package_dir/README.md" "$name"
     printf 'Built HyDE-compatible package: %s\n' "$package_dir"
@@ -1966,24 +1976,18 @@ apply_theme_wallpapers_if_needed() {
     local run_root="$2"
     local wallpaper_bin
 
-    if ! feature_enabled "$name" hires_wallpapers \
-        && ! feature_enabled "$name" vertical_wallpapers \
-        && ! feature_enabled "$name" animated_wallpapers; then
-        return 0
-    fi
-
     wallpaper_bin="$(command -v mad-wallpaper-theme 2>/dev/null || true)"
     if [[ -z "$wallpaper_bin" && -x "$local_bin/mad-wallpaper-theme" ]]; then
         wallpaper_bin="$local_bin/mad-wallpaper-theme"
     fi
     [[ -n "$wallpaper_bin" && -x "$wallpaper_bin" ]] || {
-        printf 'Skipping per-output wallpaper apply: mad-wallpaper-theme is unavailable.\n' >&2
+        printf 'Skipping active wallpaper apply: mad-wallpaper-theme is unavailable.\n' >&2
         return 0
     }
 
     mkdir -p "$run_root/logs"
     "$wallpaper_bin" apply "$name" >"$run_root/logs/mad-wallpaper-theme.log" 2>&1 || {
-        printf 'Per-output wallpaper apply failed. See %s/logs/mad-wallpaper-theme.log\n' "$run_root" >&2
+        printf 'Active wallpaper apply failed. See %s/logs/mad-wallpaper-theme.log\n' "$run_root" >&2
     }
 }
 
@@ -2038,7 +2042,7 @@ apply_theme() {
     printf 'Will own and regenerate HyDE Dunst wallbash styling when notification identity is declared.\n'
     printf 'Will install and activate bundled SDDM theme at: %s only when SDDM is enabled.\n' "$sddm_dir"
     printf 'Will install and activate bundled Plymouth theme only when Plymouth is enabled.\n'
-    printf 'Will apply per-output wallpaper tiers only when wallpaper features are enabled.\n'
+    printf 'Will apply the active wallpaper and optional per-output wallpaper tiers.\n'
     printf 'Will not format disks or edit the source SDDM theme.\n'
 
     [[ "$dry_run" == "1" ]] && return 0
@@ -2106,6 +2110,7 @@ apply_theme() {
     fi
 
     if [[ -r "$active_wall" ]]; then
+        rm -f "$live_dir/sddm/dark-zen-login.png" "$live_dir/hyprlock/dark-zen-lock.png"
         install -m 0644 "$active_wall" "$live_dir/sddm/dark-zen-login.png"
         install -m 0644 "$active_wall" "$live_dir/hyprlock/dark-zen-lock.png"
     fi

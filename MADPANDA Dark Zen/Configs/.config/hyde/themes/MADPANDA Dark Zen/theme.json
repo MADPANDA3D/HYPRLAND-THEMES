@@ -211,11 +211,7 @@
     }
   },
   "sessionStart": {
-    "expectedMonitors": [
-      "DP-5",
-      "DP-6",
-      "DP-7"
-    ],
+    "expectedMonitors": [],
     "monitorWaitSeconds": 8,
     "desktopWaitSeconds": 6,
     "audioWaitSeconds": 10,

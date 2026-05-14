@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install MADPANDA Dark Zen
+Comment=Open the MADPANDA Dark Zen installer in a terminal
+Exec=bash -c "cd \$(dirname \"\$1\") && exec ./install-dark-zen.sh" bash %k
+Terminal=false
+Categories=Settings;

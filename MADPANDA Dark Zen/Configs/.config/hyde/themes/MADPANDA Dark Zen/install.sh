@@ -292,14 +292,150 @@ has_vertical_outputs() {
 install_sddm_display_manager() {
     sddm_available && return 0
     if command -v pacman >/dev/null 2>&1; then
-        run sudo pacman -S --needed sddm
+        run sudo pacman -S --needed --noconfirm sddm
         run sudo systemctl enable sddm.service
     elif command -v yay >/dev/null 2>&1; then
-        run yay -S --needed sddm
+        run yay -S --needed --noconfirm sddm
         run sudo systemctl enable sddm.service
     else
         printf 'SDDM install requested, but neither pacman nor yay is available.\n' >&2
         return 1
+    fi
+}
+
+install_visual_dependencies() {
+    local -a packages=(eww socat nwg-dock-hyprland awww waybar)
+    local -a missing=()
+    local package
+
+    for package in "${packages[@]}"; do
+        pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
+    done
+    ((${#missing[@]} > 0)) || return 0
+
+    if command -v pacman >/dev/null 2>&1; then
+        run sudo pacman -S --needed --noconfirm "${missing[@]}"
+    elif command -v yay >/dev/null 2>&1; then
+        run yay -S --needed --noconfirm "${missing[@]}"
+    else
+        printf 'Missing visual packages and no pacman/yay was found: %s\n' "${missing[*]}" >&2
+        return 1
+    fi
+}
+
+theme_asset_dir_exists() {
+    local kind="$1"
+    local name="$2"
+    local base
+    case "$kind" in
+        theme)
+            for base in "${XDG_DATA_HOME:-$HOME/.local/share}/themes" "$HOME/.themes" /usr/share/themes; do
+                [[ -d "$base/$name" ]] && return 0
+            done
+            ;;
+        icon)
+            for base in "${XDG_DATA_HOME:-$HOME/.local/share}/icons" "$HOME/.icons" /usr/share/icons; do
+                [[ -d "$base/$name" ]] && return 0
+            done
+            ;;
+    esac
+    return 1
+}
+
+verify_theme_assets() {
+    local missing=0
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf '[dry-run] verify GTK/Icon/Cursor assets for %s\n' "$theme_name"
+        return 0
+    fi
+
+    theme_asset_dir_exists theme MADPANDA-Dark-Zen || {
+        printf 'Missing GTK theme asset: MADPANDA-Dark-Zen\n' >&2
+        missing=1
+    }
+    theme_asset_dir_exists icon besgnulinux-mono-red || {
+        printf 'Missing icon theme asset: besgnulinux-mono-red\n' >&2
+        missing=1
+    }
+    theme_asset_dir_exists icon Night-Diamond-Red || {
+        printf 'Missing cursor theme asset: Night-Diamond-Red\n' >&2
+        missing=1
+    }
+
+    if [[ "$missing" != "0" ]]; then
+        printf 'Dark Zen base assets are missing. Install from the package Source/ directory, then rerun.\n' >&2
+        return 1
+    fi
+}
+
+activate_hyde_theme() {
+    if [[ "$dry_run" == "1" ]]; then
+        printf '[dry-run] hyde-shell theme.switch -q -s %q\n' "$theme_name"
+        return 0
+    fi
+    command -v hyde-shell >/dev/null 2>&1 || {
+        printf 'hyde-shell is required to activate %s after import.\n' "$theme_name" >&2
+        return 1
+    }
+    run hyde-shell theme.switch -q -s "$theme_name"
+}
+
+apply_grub_wallpaper() {
+    local source_wall="$theme_dir/wallpapers/18.png"
+    local target="/usr/share/madpanda/dark-zen/grub-background.png"
+    local grub_default="/etc/default/grub"
+    local backup="/etc/default/grub.madpanda-dark-zen.bak"
+    local tmp
+
+    [[ -r "$source_wall" ]] || source_wall="$live_dir/wallpapers/18.png"
+    [[ -r "$source_wall" ]] || {
+        printf 'GRUB wallpaper source missing; skipped.\n' >&2
+        return 1
+    }
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf '[dry-run] sudo install -D -m 0644 %q %q\n' "$source_wall" "$target"
+        printf '[dry-run] sudo update %q GRUB_BACKGROUND=%q\n' "$grub_default" "$target"
+        printf '[dry-run] sudo grub-mkconfig -o /boot/grub/grub.cfg\n'
+        return 0
+    fi
+
+    [[ -r "$grub_default" ]] || {
+        printf 'GRUB config not found at %s; skipped.\n' "$grub_default" >&2
+        return 1
+    }
+    command -v sudo >/dev/null 2>&1 || {
+        printf 'sudo is required to apply GRUB artwork.\n' >&2
+        return 1
+    }
+
+    sudo install -D -m 0644 "$source_wall" "$target"
+    sudo cp -n "$grub_default" "$backup" 2>/dev/null || true
+    tmp="$(mktemp)"
+    awk -v bg="$target" '
+        BEGIN { done = 0 }
+        /^GRUB_BACKGROUND=/ {
+            printf "GRUB_BACKGROUND=\"%s\"\n", bg
+            done = 1
+            next
+        }
+        { print }
+        END {
+            if (!done) {
+                printf "GRUB_BACKGROUND=\"%s\"\n", bg
+            }
+        }
+    ' "$grub_default" >"$tmp"
+    sudo install -m 0644 "$tmp" "$grub_default"
+    rm -f "$tmp"
+
+    if command -v grub-mkconfig >/dev/null 2>&1; then
+        sudo grub-mkconfig -o /boot/grub/grub.cfg
+    elif command -v grub2-mkconfig >/dev/null 2>&1; then
+        sudo grub2-mkconfig -o /boot/grub/grub.cfg
+    else
+        printf 'GRUB config updated, but grub-mkconfig was not found. Regenerate GRUB manually.\n' >&2
     fi
 }
 
@@ -591,7 +727,7 @@ main() {
     else
         plymouth="$(ask_feature plymouth 'Plymouth is not installed. Install and use the Dark Zen Plymouth boot splash? Requires sudo and reboot validation.' "$plymouth_default" 'Optional boot splash setup. Leave off if you do not want boot-critical changes yet.')"
     fi
-    grub="$(ask_feature grub 'Install GRUB artwork? Requires sudo and never regenerates GRUB automatically.' "$grub_default" 'Copies artwork only. This installer does not regenerate GRUB.')"
+    grub="$(ask_feature grub 'Install GRUB artwork and regenerate GRUB config? Requires sudo.' "$grub_default" 'Backs up /etc/default/grub once, sets the Dark Zen wallpaper, and runs grub-mkconfig.')"
     hires_wallpapers="$(ask_feature hires_wallpapers 'Install/use the 4K high-res wallpaper pack?' "$hires_default" 'Large static wallpaper tier. Laptop-light keeps standard static wallpapers by default.')"
     if [[ "$install_profile" != "laptop-light" && "$no_prompt" != "1" ]] && has_vertical_outputs; then
         vertical_default="1"
@@ -601,6 +737,7 @@ main() {
     animated_wallpapers="$(ask_feature animated_wallpapers 'Use animated GIF wallpaper pilots where available?' "$animated_default" 'Large animated wallpaper tier. Laptop-light keeps this off for battery and thermals.')"
     bar_provider="$(ask_bar_provider)"
 
+    install_visual_dependencies
     copy_core_theme
     install_helpers
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-pandora-native-host" ]]; then
@@ -624,6 +761,7 @@ main() {
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-bar-provider" ]]; then
         "$local_bin/mad-bar-provider" set "$bar_provider" >/dev/null 2>&1 || true
     fi
+    verify_theme_assets
     install_user_watcher
     if [[ "$rgb" == "1" ]]; then
         install_openrgb_sdk_service
@@ -632,10 +770,14 @@ main() {
     theme_pack_bin="$(helper_source_for mad-theme-pack || command -v mad-theme-pack 2>/dev/null || true)"
     if [[ -n "${theme_pack_bin:-}" ]]; then
         if [[ "$dry_run" == "1" ]]; then
-            "$theme_pack_bin" apply "$theme_name" --dry-run || true
+            "$theme_pack_bin" apply "$theme_name" --dry-run
         else
-            "$theme_pack_bin" apply "$theme_name" || true
+            "$theme_pack_bin" apply "$theme_name"
         fi
+    fi
+    activate_hyde_theme
+    if [[ "$grub" == "1" ]]; then
+        apply_grub_wallpaper
     fi
     theme_runtime_bin="$(helper_source_for mad-theme-runtime || command -v mad-theme-runtime 2>/dev/null || true)"
     if [[ "$dry_run" != "1" && -n "${theme_runtime_bin:-}" ]]; then

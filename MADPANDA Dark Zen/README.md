@@ -6,7 +6,7 @@ visual identity. The theme is open source and non-monetized.
 ## Install
 
 ```bash
-hydectl theme import --name "MADPANDA Dark Zen" --url "$(pwd)/Configs"
+hydectl theme import --name "MADPANDA Dark Zen" --url "$(pwd)"
 ```
 
 Or run the guided installer from the packaged theme directory:
@@ -20,6 +20,9 @@ The HyDE-compatible theme files live under:
 ```text
 Configs/.config/hyde/themes/MADPANDA Dark Zen
 ```
+
+Fresh installs also use the package-root `Source/` directory for GTK, icon,
+and cursor archives.
 
 MADPANDA helper features such as RGB, sounds, lock identity, notifications,
 terminal stickers, and tile-close effects are declared by `theme.json`.
