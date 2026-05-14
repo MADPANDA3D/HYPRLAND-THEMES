@@ -321,6 +321,7 @@ check_resume_guard() {
 }
 
 install_hyde_if_needed() {
+    stage_done hyde && { log "Stage hyde already complete."; return 0; }
     if hyde_detected; then
         log "HyDE detected; official HyDE installer will not run."
         mark_stage hyde

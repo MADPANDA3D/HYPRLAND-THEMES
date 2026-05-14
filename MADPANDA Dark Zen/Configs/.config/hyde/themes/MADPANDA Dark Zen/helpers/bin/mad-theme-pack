@@ -1339,10 +1339,104 @@ $theme_dir_rel
 Fresh installs also use the package-root \`Source/\` directory for GTK, icon,
 and cursor archives.
 
+HyDE also reads the package-root \`restore_cfg.lst\` during theme import. That
+file is generated with the same seven core restore entries used by official
+HyDE gallery themes.
+
 MADPANDA helper features such as RGB, sounds, lock identity, notifications,
 terminal stickers, and tile-close effects are declared by \`theme.json\`.
 Helpers must skip unsupported features if a dependency is missing.
 EOF
+}
+
+write_package_restore_cfg() {
+    local target="$1"
+    local name="$2"
+    local theme_root='${HOME}/.config/hyde/themes'
+
+    mkdir -p "$(dirname "$target")"
+    {
+        printf 'Y|Y|%s/%s|hypr.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s|kitty.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s/kvantum|kvantum.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s/kvantum|kvconfig.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s|rofi.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s|waybar.theme|hyprland\n' "$theme_root" "$name"
+        printf 'Y|Y|%s/%s|theme.dcol|hyprland\n' "$theme_root" "$name"
+    } >"$target"
+}
+
+write_package_source_readme() {
+    local target="$1"
+    local name="$2"
+
+    mkdir -p "$(dirname "$target")"
+    cat >"$target" <<EOF
+# $name Source assets
+
+This package bundles the inherited Bad Blood visual assets needed by fresh HyDE
+installs:
+
+- GTK theme alias: MADPANDA-Dark-Zen
+- Icon theme: besgnulinux-mono-red
+- Cursor theme: Night-Diamond-Red
+
+The cursor archive intentionally preserves the upstream Night-Diamond-Red
+payload. Be careful when changing hyprcursor manifest files because the
+upstream Bad Blood source notes that enabling hyprcursor manifests can crash
+Hyprland on some systems.
+EOF
+}
+
+write_package_license() {
+    local target="$1"
+    local dev_dir="$2"
+    local candidate
+
+    mkdir -p "$(dirname "$target")"
+    for candidate in \
+        "$dev_dir/LICENSE" \
+        "$repo_root/LICENSE" \
+        "$repo_root/../sources/HyDE/LICENSE"; do
+        if [[ -r "$candidate" ]]; then
+            install -m 0644 "$candidate" "$target"
+            return 0
+        fi
+    done
+
+    cat >"$target" <<'EOF'
+GNU GENERAL PUBLIC LICENSE
+
+This HyDE theme package inherits GPL-licensed HyDE/Bad Blood theme material.
+Ship the full GPL-3.0 license text with public release packages when the
+upstream license file is available in the development checkout.
+EOF
+}
+
+write_package_preview() {
+    local target="$1"
+    local dev_dir="$2"
+    local preview_source=""
+
+    mkdir -p "$(dirname "$target")"
+    if [[ -r "$dev_dir/preview.png" ]]; then
+        preview_source="$dev_dir/preview.png"
+    elif [[ -r "$dev_dir/sddm/dark-zen-login.png" ]]; then
+        preview_source="$dev_dir/sddm/dark-zen-login.png"
+    elif [[ -d "$dev_dir/wallpapers" ]]; then
+        preview_source="$(
+            find "$dev_dir/wallpapers" -maxdepth 1 -type f \
+                \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) |
+                sort |
+                head -n 1
+        )"
+    fi
+
+    if [[ -n "$preview_source" && -r "$preview_source" ]]; then
+        install -m 0644 "$preview_source" "$target"
+    else
+        rm -f "$target"
+    fi
 }
 
 theme_helper_names() {
@@ -1459,11 +1553,15 @@ build_hyde_package() {
     if [[ -d "$dev_dir/Source" ]]; then
         mkdir -p "$package_dir/Source"
         rsync -a --delete "$dev_dir/Source/" "$package_dir/Source/"
+        write_package_source_readme "$package_dir/Source/README.txt" "$name"
     else
         rm -rf "$package_dir/Source"
     fi
     stage_helper_payload "$package_theme_dir"
     write_package_readme "$package_dir/README.md" "$name"
+    write_package_restore_cfg "$package_dir/restore_cfg.lst" "$name"
+    write_package_preview "$package_dir/preview.png" "$dev_dir"
+    write_package_license "$package_dir/LICENSE" "$dev_dir"
     printf 'Built HyDE-compatible package: %s\n' "$package_dir"
 }
 
