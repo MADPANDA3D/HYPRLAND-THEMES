@@ -14,6 +14,7 @@ custom_rows="$(
 SUPER + Q            > Terminal ::: :::
 SUPER + W            > Dictation start/stop ::: :::
 SUPER + E            > Google Chrome ::: :::
+SUPER + M            > Toggle microphone mute ::: :::
 SUPER + R            > Smart-follow recording ::: :::
 SUPER CTRL + R       > Fixed monitor recording ::: :::
 SUPER SHIFT + R      > Creator recording with camera ::: :::

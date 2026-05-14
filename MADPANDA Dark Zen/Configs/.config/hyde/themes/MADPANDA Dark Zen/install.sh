@@ -361,6 +361,7 @@ install_helpers() {
         mad-window-burst \
         mad-display-gamma \
         mad-dictate \
+        mad-mic-toggle \
         mad-screenshot-region \
         mad-screenshot-active-window \
         mad-screenshot-full \

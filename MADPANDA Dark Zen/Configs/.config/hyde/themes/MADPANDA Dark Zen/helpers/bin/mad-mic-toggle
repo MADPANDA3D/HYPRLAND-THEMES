@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_id="${MAD_MIC_SOURCE:-@DEFAULT_AUDIO_SOURCE@}"
+
+if ! command -v wpctl >/dev/null 2>&1; then
+    notify-send -a MADPANDA "Microphone" "wpctl is not installed." -t 2000 2>/dev/null || true
+    exit 1
+fi
+
+wpctl set-mute "$source_id" toggle
+
+state="$(wpctl get-volume "$source_id" 2>/dev/null || true)"
+if printf '%s\n' "$state" | grep -qi 'MUTED'; then
+    notify-send -a MADPANDA "Microphone muted" "$state" -t 1200 2>/dev/null || true
+else
+    notify-send -a MADPANDA "Microphone live" "$state" -t 1200 2>/dev/null || true
+fi
