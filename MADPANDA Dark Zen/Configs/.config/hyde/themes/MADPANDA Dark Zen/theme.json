@@ -382,6 +382,21 @@
         "mad-widget-drawer"
       ]
     },
+    "layoutProfiles": {
+      "desktop": {
+        "barWidth": "96%",
+        "barHeight": "44px",
+        "drawerWidth": "500px",
+        "drawerHeight": "74%"
+      },
+      "laptop-light": {
+        "barWidth": "98%",
+        "barHeight": "38px",
+        "drawerWidth": "420px",
+        "drawerHeight": "64%",
+        "notes": "Runtime-compacted by mad-eww-bar from MAD_THEME_INSTALL_PROFILE for 15-inch laptop panels."
+      }
+    },
     "exclusive": true,
     "replaces": "waybar",
     "takeover": "staged",
@@ -420,6 +435,30 @@
       "safeMode": "App launcher and lock are live; shutdown, reboot, suspend, and Hyprland exit are disabled in the sandbox.",
       "placement": "top overlay"
     }
+  },
+  "workstationPackages": {
+    "guidedInstall": "ask-default-yes",
+    "disableFlag": "--disable workstation_packages",
+    "browserPreference": [
+      "google-chrome",
+      "chromium"
+    ],
+    "editorPreference": [
+      "visual-studio-code-bin",
+      "code"
+    ],
+    "expectedByKeybindings": [
+      "kitty",
+      "dolphin",
+      "code",
+      "google-chrome-stable or google-chrome or chromium",
+      "grim",
+      "slurp",
+      "wl-clipboard",
+      "gpu-screen-recorder",
+      "python-vosk",
+      "eww or waybar"
+    ]
   },
   "dependencies": {
     "required": [

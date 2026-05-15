@@ -25,9 +25,9 @@ Usage:
   install.sh [--dry-run] [--yes] [--no-prompt] [--profile auto|desktop|laptop-light] [--enable a,b] [--disable a,b]
 
 Installs the MADPANDA Dark Zen HyDE theme and prompts for optional modules:
-sounds, rgb, identity, effects, keybindings, dictation, sddm, plymouth, grub,
-high-res wallpapers, vertical wallpapers, animated wallpaper pilots, and bar
-provider.
+workstation packages, sounds, rgb, identity, effects, keybindings, dictation,
+sddm, plymouth, grub, high-res wallpapers, vertical wallpapers, animated
+wallpaper pilots, and bar provider.
 
 Profiles:
   auto          Detect laptop/desktop and choose a matching profile.
@@ -250,12 +250,41 @@ ask_bar_provider() {
         printf 'eww\n'
         return 0
     fi
-    printf '\nDark Zen Eww bar replaces visible Waybar with the approved oval top bar. Waybar remains installed and recoverable.\n' >&2
-    printf 'Use Dark Zen Eww bar instead of HyDE/Waybar? [Y/n] ' >&2
+    printf '\nChoose the visible bar provider.\n' >&2
+    printf '  1) Eww    - Dark Zen oval top bar and widget drawer\n' >&2
+    printf '  2) Waybar - keep HyDE/Waybar visible; Dark Zen widgets stay available\n' >&2
+    printf 'Bar provider [1/2, default 1] ' >&2
     read -r answer
     case "$answer" in
-        n|N|no|NO) printf 'waybar\n' ;;
+        2|w|W|waybar|Waybar|n|N|no|NO) printf 'waybar\n' ;;
         *) printf 'eww\n' ;;
+    esac
+}
+
+ask_workstation_packages() {
+    local default="${1:-1}"
+    local answer
+
+    if in_csv workstation_packages "$enable_csv" || in_csv packages "$enable_csv" || in_csv daily_driver "$enable_csv"; then
+        printf '1\n'
+        return 0
+    fi
+    if in_csv workstation_packages "$disable_csv" || in_csv packages "$disable_csv" || in_csv daily_driver "$disable_csv"; then
+        printf '0\n'
+        return 0
+    fi
+    if [[ "$dry_run" == "1" || "$no_prompt" == "1" || "$assume_yes" == "1" ]]; then
+        printf '%s\n' "$default"
+        return 0
+    fi
+
+    printf '\nInstall Dark Zen workstation packages?\n' >&2
+    printf 'This installs the apps and helper packages expected by the bundled keybindings: Chrome/Chromium, VS Code, Kitty, Dolphin, screenshots, recording, dictation, Eww/Waybar, docks, media controls, and theme tooling.\n' >&2
+    printf 'Install workstation packages? [Y/n] ' >&2
+    read -r answer
+    case "$answer" in
+        n|N|no|NO) printf '0\n' ;;
+        *) printf '1\n' ;;
     esac
 }
 
@@ -303,24 +332,146 @@ install_sddm_display_manager() {
     fi
 }
 
-install_visual_dependencies() {
-    local -a packages=(eww socat nwg-dock-hyprland awww waybar)
+package_installed() {
+    [[ "${MAD_THEME_ASSUME_MISSING_PACKAGES:-0}" == "1" ]] && return 1
+    pacman -Q "$1" >/dev/null 2>&1
+}
+
+package_known_to_pacman() {
+    command -v pacman >/dev/null 2>&1 || return 1
+    pacman -Si "$1" >/dev/null 2>&1
+}
+
+package_known_to_yay() {
+    command -v yay >/dev/null 2>&1 || return 1
+    yay -Si "$1" >/dev/null 2>&1
+}
+
+select_installable_package() {
+    local package
+    for package in "$@"; do
+        if package_known_to_pacman "$package" || package_known_to_yay "$package"; then
+            printf '%s\n' "$package"
+            return 0
+        fi
+    done
+    printf '%s\n' "$1"
+}
+
+install_package_group() {
+    local label="$1"
+    shift
     local -a missing=()
     local package
 
-    for package in "${packages[@]}"; do
-        pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
+    for package in "$@"; do
+        [[ -n "$package" ]] || continue
+        package_installed "$package" || missing+=("$package")
     done
     ((${#missing[@]} > 0)) || return 0
 
-    if command -v pacman >/dev/null 2>&1; then
-        run sudo pacman -S --needed --noconfirm "${missing[@]}"
-    elif command -v yay >/dev/null 2>&1; then
+    if command -v yay >/dev/null 2>&1; then
         run yay -S --needed --noconfirm "${missing[@]}"
+    elif command -v pacman >/dev/null 2>&1; then
+        run sudo pacman -S --needed --noconfirm "${missing[@]}"
     else
-        printf 'Missing visual packages and no pacman/yay was found: %s\n' "${missing[*]}" >&2
+        printf 'Missing %s packages and no pacman/yay was found: %s\n' "$label" "${missing[*]}" >&2
         return 1
     fi
+}
+
+install_visual_dependencies() {
+    local provider="${1:-eww}"
+    local -a packages=(socat awww waybar)
+
+    if [[ "$provider" == "eww" ]]; then
+        packages+=(eww nwg-dock-hyprland)
+    fi
+
+    install_package_group "visual" "${packages[@]}"
+}
+
+workstation_package_list() {
+    local provider="${1:-eww}"
+    local browser_package code_package
+
+    browser_package="$(select_installable_package google-chrome chromium)"
+    code_package="$(select_installable_package visual-studio-code-bin code)"
+
+    cat <<EOF
+$browser_package
+$code_package
+kitty
+dolphin
+dolphin-plugins
+ffmpegthumbs
+fastfetch
+jq
+rsync
+tar
+git
+curl
+base-devel
+python
+python-vosk
+sox
+wtype
+nodejs
+npm
+bat
+duf
+btop
+tree
+tldr
+meld
+grim
+slurp
+wl-clipboard
+wl-clip-persist
+cliphist
+dunst
+libnotify
+imagemagick
+mpg123
+playerctl
+pavucontrol
+bluez
+bluez-utils
+blueman
+network-manager-applet
+power-profiles-daemon
+hyprlock
+hypridle
+hyprsunset
+nwg-look
+qt5ct
+qt6ct
+kvantum
+kvantum-qt5
+awww
+waybar
+gpu-screen-recorder
+gpu-screen-recorder-ui
+gpu-screen-recorder-notification
+EOF
+
+    if [[ "$provider" == "eww" ]]; then
+        printf '%s\n' eww socat nwg-dock-hyprland
+    fi
+}
+
+install_workstation_dependencies() {
+    local provider="$1"
+    local enabled="$2"
+    local -a packages=()
+
+    [[ "$enabled" == "1" ]] || {
+        printf 'Dark Zen workstation package install skipped by user.\n' >&2
+        return 0
+    }
+
+    mapfile -t packages < <(workstation_package_list "$provider" | awk 'NF && !seen[$0]++')
+    install_package_group "workstation" "${packages[@]}"
 }
 
 theme_asset_dir_exists() {
@@ -542,6 +693,7 @@ write_features() {
     local animated_wallpapers="${13}"
     local bar_provider="${14:-eww}"
     local profile="${15:-desktop}"
+    local workstation_packages="${16:-1}"
 
     if [[ "$dry_run" == "1" ]]; then
         printf '[dry-run] write %s\n' "$features_file"
@@ -566,7 +718,62 @@ write_features() {
         printf 'MAD_THEME_FEATURE_VERTICAL_WALLPAPERS=%s\n' "$vertical_wallpapers"
         printf 'MAD_THEME_FEATURE_ANIMATED_WALLPAPERS=%s\n' "$animated_wallpapers"
         printf 'MAD_THEME_BAR_PROVIDER=%q\n' "$bar_provider"
+        printf 'MAD_THEME_FEATURE_WORKSTATION_PACKAGES=%s\n' "$workstation_packages"
     } >"$features_file"
+}
+
+verify_command_available() {
+    local label="$1"
+    shift
+    local command
+    for command in "$@"; do
+        command -v "$command" >/dev/null 2>&1 && return 0
+    done
+    printf 'Dark Zen verification failed: %s command missing (%s).\n' "$label" "$*" >&2
+    return 1
+}
+
+verify_theme_application() {
+    local keybindings="$1"
+    local bar_provider="$2"
+    local workstation_packages="$3"
+    local keybind_target="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/conf/madpanda-usability.conf"
+    local hyprland_conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprland.conf"
+    local source_line='source = ~/.config/hypr/conf/madpanda-usability.conf'
+
+    if [[ "$dry_run" == "1" ]]; then
+        printf '[dry-run] verify Dark Zen application: packages=%s keybindings=%s bar=%s\n' "$workstation_packages" "$keybindings" "$bar_provider"
+        return 0
+    fi
+
+    if [[ "$workstation_packages" == "1" ]]; then
+        verify_command_available "terminal" kitty || return 1
+        verify_command_available "file manager" dolphin || return 1
+        verify_command_available "editor" code || return 1
+        verify_command_available "browser" google-chrome-stable google-chrome chromium || return 1
+        verify_command_available "screenshot helpers" grim || return 1
+        verify_command_available "region selector" slurp || return 1
+        verify_command_available "clipboard" wl-copy || return 1
+        verify_command_available "recording" gpu-screen-recorder || return 1
+    fi
+
+    if [[ "$keybindings" == "1" ]]; then
+        [[ -r "$keybind_target" ]] || {
+            printf 'Dark Zen keybindings were enabled, but %s is missing.\n' "$keybind_target" >&2
+            return 1
+        }
+        [[ -r "$hyprland_conf" ]] && grep -Fxq "$source_line" "$hyprland_conf" || {
+            printf 'Dark Zen keybindings were enabled, but hyprland.conf does not source %s.\n' "$keybind_target" >&2
+            return 1
+        }
+    fi
+
+    if [[ "$bar_provider" == "eww" ]]; then
+        verify_command_available "Eww bar" eww || return 1
+        verify_command_available "Eww IPC" socat || return 1
+    else
+        verify_command_available "Waybar" waybar || return 1
+    fi
 }
 
 install_user_watcher() {
@@ -674,6 +881,7 @@ main() {
     local grub_default="0"
     local hires_default="0"
     local animated_default="0"
+    local workstation_packages_default="1"
 
     resolve_install_profile
 
@@ -736,8 +944,10 @@ main() {
     vertical_wallpapers="$(ask_feature vertical_wallpapers "$vertical_label" "$vertical_default" 'Uses portrait assets on rotated or portrait monitors when available.')"
     animated_wallpapers="$(ask_feature animated_wallpapers 'Use animated GIF wallpaper pilots where available?' "$animated_default" 'Large animated wallpaper tier. Laptop-light keeps this off for battery and thermals.')"
     bar_provider="$(ask_bar_provider)"
+    workstation_packages="$(ask_workstation_packages "$workstation_packages_default")"
 
-    install_visual_dependencies
+    install_visual_dependencies "$bar_provider"
+    install_workstation_dependencies "$bar_provider" "$workstation_packages"
     copy_core_theme
     install_helpers
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-pandora-native-host" ]]; then
@@ -757,7 +967,7 @@ main() {
             printf 'Chrome/Chromium not found; Pandora media bridge skipped. Install Google Chrome or Chromium and rerun this installer to enable it.\n' >&2
         fi
     fi
-    write_features "$sounds" "$rgb" "$identity" "$effects" "$keybindings" "$dictation" "$dictation_backend" "$sddm" "$plymouth" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile"
+    write_features "$sounds" "$rgb" "$identity" "$effects" "$keybindings" "$dictation" "$dictation_backend" "$sddm" "$plymouth" "$grub" "$hires_wallpapers" "$vertical_wallpapers" "$animated_wallpapers" "$bar_provider" "$install_profile" "$workstation_packages"
     if [[ "$dry_run" != "1" && -x "$local_bin/mad-bar-provider" ]]; then
         "$local_bin/mad-bar-provider" set "$bar_provider" >/dev/null 2>&1 || true
     fi
@@ -779,6 +989,7 @@ main() {
     if [[ "$grub" == "1" ]]; then
         apply_grub_wallpaper
     fi
+    verify_theme_application "$keybindings" "$bar_provider" "$workstation_packages"
     theme_runtime_bin="$(helper_source_for mad-theme-runtime || command -v mad-theme-runtime 2>/dev/null || true)"
     if [[ "$dry_run" != "1" && -n "${theme_runtime_bin:-}" ]]; then
         "$theme_runtime_bin" reconcile --startup >/dev/null 2>&1 || true

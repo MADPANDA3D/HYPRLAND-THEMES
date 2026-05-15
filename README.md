@@ -15,9 +15,15 @@ installed, it writes a one-shot Hyprland resume hook, asks for reboot, then
 continues after the next login before applying `MADPANDA Dark Zen`.
 
 The guided Dark Zen installer asks before applying user-sensitive options such
-as keybindings, dictation backend, SDDM, Plymouth, RGB, high-res wallpapers, and
-animated wallpapers. The `laptop-light` profile keeps static standard wallpapers
-and disables RGB/high-res/animated wallpaper tiers by default.
+as workstation packages, Eww vs Waybar, keybindings, dictation backend, SDDM,
+Plymouth, RGB, high-res wallpapers, and animated wallpapers. The `laptop-light`
+profile keeps static standard wallpapers, disables RGB/high-res/animated
+wallpaper tiers by default, and compacts the Eww runtime for smaller laptop
+panels.
+
+The workstation package option installs the apps and helpers expected by Dark
+Zen shortcuts, including Chrome/Chromium, VS Code, Kitty, Dolphin, screenshot
+helpers, recording, dictation, Eww/Waybar, docks, and media controls.
 
 Useful options:
 

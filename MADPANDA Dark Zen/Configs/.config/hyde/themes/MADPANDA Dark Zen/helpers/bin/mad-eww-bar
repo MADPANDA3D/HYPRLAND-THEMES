@@ -7,12 +7,14 @@ window_name="mad-testbar"
 runtime_dir="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/eww-testbar/$theme_slug"
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/eww-bar"
 state_file="$state_dir/state.env"
+features_file="${XDG_CONFIG_HOME:-$HOME/.config}/madpanda/themes/$theme_slug/features.env"
 provider_helper="${MAD_BAR_PROVIDER_BIN:-$(command -v mad-bar-provider 2>/dev/null || printf '%s/mad-bar-provider' "${XDG_BIN_HOME:-$HOME/.local/bin}")}"
 
 usage() {
     cat <<'EOF'
 Usage:
   mad-eww-bar start [--keep-waybar]
+  mad-eww-bar sync-config
   mad-eww-bar start-session
   mad-eww-bar stop
   mad-eww-bar restart
@@ -177,6 +179,132 @@ sync_config() {
     mkdir -p "$runtime_dir"
     rsync -a --delete "$src/" "$runtime_dir/"
     chmod +x "$runtime_dir"/scripts/*.sh
+    apply_laptop_light_runtime
+}
+
+install_profile() {
+    local profile="${MAD_THEME_INSTALL_PROFILE:-}"
+    if [[ -z "$profile" && -r "$features_file" ]]; then
+        profile="$(
+            set -a
+            # shellcheck disable=SC1090
+            . "$features_file"
+            printf '%s\n' "${MAD_THEME_INSTALL_PROFILE:-}"
+        )"
+    fi
+    printf '%s\n' "${profile:-desktop}"
+}
+
+apply_laptop_light_runtime() {
+    [[ "$(install_profile)" == "laptop-light" ]] || return 0
+    [[ -r "$runtime_dir/eww.yuck" && -r "$runtime_dir/eww.scss" ]] || return 0
+
+    perl -0pi -e '
+        s/:width "96%"/:width "98%"/;
+        s/:height "44px"/:height "38px"/;
+        s/:y "3px"/:y "2px"/;
+        s/:x "18px"/:x "10px"/g;
+        s/:y "58px"/:y "46px"/g;
+        s/:width "500px"/:width "420px"/g;
+        s/:height "74%"/:height "64%"/;
+        s/:limit-width 30/:limit-width 18/g;
+        s/:limit-width 24/:limit-width 18/g;
+    ' "$runtime_dir/eww.yuck"
+
+    cat >>"$runtime_dir/eww.scss" <<'EOF'
+
+/* mad-widget-drawer laptop-light geometry */
+.mad-testbar {
+  padding: 3px 6px;
+}
+
+.launcher,
+.icon-button,
+.workspace {
+  min-height: 22px;
+  min-width: 22px;
+  padding: 0 4px;
+}
+
+.launcher {
+  font-size: 15px;
+}
+
+.pill,
+.workspace-strip,
+.system-strip,
+.window-pill {
+  padding: 2px 5px;
+}
+
+.clock {
+  font-size: 12px;
+  padding: 0 7px;
+}
+
+.clock-detail,
+.stat-label,
+.metric-label,
+.net-label,
+.window-title {
+  font-size: 10px;
+}
+
+.right .icon-button {
+  min-width: 20px;
+  padding-left: 3px;
+  padding-right: 3px;
+}
+
+.drawer-shell {
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.drawer-card {
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.drawer-title {
+  font-size: 14px;
+  padding-bottom: 7px;
+}
+
+.drawer-day,
+.drawer-weekday {
+  font-size: 12px;
+  min-width: 42px;
+  padding: 5px 0;
+}
+
+.calendar-title {
+  min-width: 140px;
+}
+
+.media-art-fallback,
+.media-art-image {
+  min-height: 58px;
+  min-width: 58px;
+}
+
+.media-art-icon {
+  font-size: 24px;
+}
+
+.vital-meter {
+  min-width: 48px;
+}
+
+.vital-progress trough {
+  min-height: 86px;
+  min-width: 18px;
+}
+
+.vital-progress trough progress {
+  min-width: 18px;
+}
+EOF
 }
 
 daemon_running() {
@@ -376,6 +504,10 @@ case "${1:-}" in
         else
             printf 'Dark Zen bar provider is %s; Eww start skipped.\n' "$(selected_provider)"
         fi
+        ;;
+    sync-config)
+        sync_config
+        printf 'Synced %s runtime config for profile %s\n' "$window_name" "$(install_profile)"
         ;;
     stop)
         stop_bar

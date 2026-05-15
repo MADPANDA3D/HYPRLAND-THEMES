@@ -1343,6 +1343,10 @@ HyDE also reads the package-root \`restore_cfg.lst\` during theme import. That
 file is generated with the same seven core restore entries used by official
 HyDE gallery themes.
 
+The guided installer can also install the workstation package set expected by
+the bundled shortcuts: Chrome/Chromium, VS Code, Kitty, Dolphin, screenshot,
+recording, dictation, Eww/Waybar, dock, media, and theme helper packages.
+
 MADPANDA helper features such as RGB, sounds, lock identity, notifications,
 terminal stickers, and tile-close effects are declared by \`theme.json\`.
 Helpers must skip unsupported features if a dependency is missing.
