@@ -15,6 +15,7 @@ fi
 theme_name="MADPANDA Dark Zen"
 theme_rel="MADPANDA Dark Zen"
 theme_config_rel="Configs/.config/hyde/themes/MADPANDA Dark Zen"
+bootstrap_version="2026-05-15-workstation-profile"
 hyde_dir="${MADPANDA_HYDE_DIR:-$HOME/HyDE}"
 state_base="${XDG_STATE_HOME:-$HOME/.local/state}/madpanda/dark-zen-install"
 run_id="${MADPANDA_INSTALL_RUN_ID:-$(date +%Y%m%dT%H%M%S%z)-$$}"
@@ -145,11 +146,28 @@ mark_stage() {
     local stage="$1"
     [[ "$dry_run" == "1" ]] && { printf '[dry-run] mark stage %s\n' "$stage"; return 0; }
     mkdir -p "$stage_dir"
-    date --iso-8601=seconds >"$stage_dir/$stage.done"
+    {
+        printf 'completed_at=%s\n' "$(date --iso-8601=seconds)"
+        printf 'version=%s\n' "$bootstrap_version"
+    } >"$stage_dir/$stage.done"
+}
+
+stage_requires_current_version() {
+    case "$1" in
+        dark-zen|complete) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 stage_done() {
-    [[ -r "$stage_dir/$1.done" ]]
+    local stage="$1"
+    local marker="$stage_dir/$stage.done"
+    [[ -r "$marker" ]] || return 1
+    if stage_requires_current_version "$stage"; then
+        grep -Fxq "version=$bootstrap_version" "$marker"
+    else
+        return 0
+    fi
 }
 
 is_arch_like() {
